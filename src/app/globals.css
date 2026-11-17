@@ -1,0 +1,596 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Wayfind (deal 2/3, seed linusku-live-campus-bus-4c37·70d45f0e·2026-11-17·r0) · redesign: full
+ * nav: edge-aligned · signature: live ETA plate · states: realtime, simulation, selected stop, bus position · wayfind: platform
+ * axes: light/mono/cool · posture: committed · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · weakest: S, transit jargon kept but made specific to USU · led with a live arrival board instead of a generic dashboard */
+
+@import "./tokens.css";
+@import "./base.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-paper);
+}
+
+.leaflet-container {
+  font-family: var(--font-body);
+  background: var(--color-paper-2);
+}
+
+.app-shell {
+  min-height: 100dvh;
+  background:
+    linear-gradient(var(--color-rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-rule) 1px, transparent 1px),
+    var(--color-paper);
+  background-size: 40px 40px;
+  background-position: -1px -1px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky-nav);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-3);
+}
+
+.topbar-inner,
+.app-main,
+.bottom-nav-inner {
+  width: 100%;
+  max-width: var(--container);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.topbar-inner {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.operating-banner {
+  max-width: var(--container);
+  margin-inline: auto;
+  margin-top: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-accent-2);
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-ink);
+}
+
+.operating-banner strong,
+.operating-banner small {
+  display: block;
+}
+
+.operating-banner small {
+  margin-top: var(--space-2xs);
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 40px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-accent-2);
+}
+
+.brand-name {
+  display: block;
+  font-size: var(--text-lg);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.brand-place {
+  display: block;
+  margin-top: var(--space-2xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.live-chip,
+.driver-link,
+.route-chip,
+.occupancy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 40px;
+  border: var(--rule-bar) solid currentColor;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-paper-3);
+  font-size: var(--text-sm);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.live-chip.is-live {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border-color: var(--color-accent);
+}
+
+.driver-link {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.app-main {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(280px, 4fr);
+  gap: var(--gap-columns);
+  padding-top: var(--space-lg);
+  padding-bottom: var(--space-3xl);
+}
+
+.map-column,
+.board-column {
+  min-width: 0;
+}
+
+.map-frame {
+  height: min(70dvh, 660px);
+  min-height: 520px;
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-2);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  padding: var(--space-xs);
+}
+
+.map-frame .leaflet-container {
+  height: 100%;
+  width: 100%;
+  border: var(--rule-hair) solid var(--color-rule);
+}
+
+.arrival-board {
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-3);
+}
+
+.arrival-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+}
+
+.arrival-head h2 {
+  margin-top: var(--space-xs);
+  max-width: 18ch;
+}
+
+.route-chip {
+  flex-shrink: 0;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border-color: var(--color-accent);
+}
+
+.arrival-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 92px;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.arrival-row:last-child {
+  border-bottom: 0;
+}
+
+.bus-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: 800;
+}
+
+.occupancy-chip {
+  min-height: 32px;
+  border-width: var(--rule-hair);
+  font-size: var(--text-xs);
+  background: var(--color-paper-2);
+}
+
+.occupancy-chip.low {
+  background: var(--color-success);
+  color: var(--color-accent-ink);
+  border-color: var(--color-success);
+}
+
+.occupancy-chip.medium {
+  background: var(--color-accent-2);
+  color: var(--color-ink);
+  border-color: var(--color-ink);
+}
+
+.occupancy-chip.full {
+  background: var(--color-error);
+  color: var(--color-accent-ink);
+  border-color: var(--color-error);
+}
+
+.eta {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-accent);
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.eta small {
+  display: block;
+  margin-top: var(--space-xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.stops-panel {
+  margin-top: var(--space-lg);
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-3);
+}
+
+.utility-panel,
+.studentplace-banner {
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-3);
+}
+
+.utility-panel {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+}
+
+.nearest-button,
+.crowd-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  border: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-3);
+  padding-inline: var(--space-md);
+  color: var(--color-ink);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.nearest-button {
+  width: 100%;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-ink);
+  white-space: nowrap;
+}
+
+.utility-status {
+  margin-top: var(--space-sm);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.crowd-row {
+  margin-top: var(--space-md);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.crowd-row label {
+  display: grid;
+  gap: var(--space-2xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.crowd-select {
+  height: 44px;
+  width: 100%;
+  border: var(--rule-bar) solid var(--color-ink);
+  border-radius: 0;
+  background: var(--color-paper-3);
+  padding-inline: var(--space-sm);
+  color: var(--color-ink);
+}
+
+.crowd-button {
+  grid-column: 1 / -1;
+  width: 100%;
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.studentplace-banner {
+  margin-top: var(--space-lg);
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.studentplace-banner strong,
+.studentplace-banner small {
+  display: block;
+}
+
+.studentplace-banner small {
+  margin-top: var(--space-2xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.stops-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+}
+
+.stop-search {
+  width: min(240px, 44%);
+  height: 40px;
+  border: var(--rule-bar) solid var(--color-ink);
+  border-radius: 0;
+  background: var(--color-paper-3);
+  padding-inline: var(--space-sm);
+  color: var(--color-ink);
+}
+
+.stop-list {
+  max-height: 316px;
+  overflow-y: auto;
+}
+
+.stop-button {
+  width: 100%;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+  border: 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  background: transparent;
+  padding: var(--space-md) var(--space-lg);
+  text-align: left;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.stop-button:last-child {
+  border-bottom: 0;
+}
+
+.stop-button:hover,
+.stop-button.is-selected {
+  background: var(--color-accent-2);
+}
+
+.stop-button.is-selected {
+  box-shadow: inset var(--rule-bar) 0 0 var(--color-accent);
+}
+
+.stop-name {
+  display: block;
+  font-weight: 800;
+}
+
+.stop-area {
+  display: block;
+  margin-top: var(--space-2xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.stop-nearest {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bottom-nav {
+  display: none;
+}
+
+.stop-button:focus-visible,
+.live-chip:focus-visible,
+.driver-link:focus-visible,
+.bottom-nav a:focus-visible,
+.stop-search:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.stop-button:active,
+.live-chip:active,
+.driver-link:active,
+.bottom-nav a:active {
+  transform: translateY(1px);
+}
+
+.live-chip:disabled,
+.stop-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 60rem) {
+  .app-main {
+    grid-template-columns: 1fr;
+  }
+
+  .map-frame {
+    height: 48dvh;
+    min-height: 360px;
+  }
+
+  .board-column {
+    display: grid;
+    gap: var(--space-lg);
+  }
+
+  .stops-panel {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 40rem) {
+  .topbar-inner,
+  .app-main,
+  .bottom-nav-inner {
+    padding-inline: var(--space-md);
+  }
+
+  .operating-banner {
+    width: calc(100% - var(--space-lg));
+  }
+
+  .topbar-inner {
+    min-height: 64px;
+  }
+
+  .brand-mark {
+    width: 36px;
+  }
+
+  .brand-place,
+  .driver-link span,
+  .live-chip span {
+    display: none;
+  }
+
+  .topbar-actions {
+    gap: var(--space-xs);
+  }
+
+  .live-chip,
+  .driver-link {
+    min-width: 40px;
+    justify-content: center;
+    padding-inline: var(--space-xs);
+  }
+
+  .app-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    padding-top: var(--space-md);
+    padding-bottom: 104px;
+  }
+
+  .map-frame {
+    height: 42dvh;
+    min-height: 300px;
+  }
+
+  .arrival-head,
+  .arrival-row,
+  .stops-head,
+  .stop-button {
+    padding-inline: var(--space-md);
+  }
+
+  .arrival-head {
+    padding-block: var(--space-md);
+  }
+
+  .arrival-row {
+    min-height: 84px;
+  }
+
+  .eta {
+    font-size: var(--text-2xl);
+  }
+
+  .stops-head {
+    align-items: stretch;
+  }
+
+  .stop-search {
+    width: 52%;
+  }
+
+  .bottom-nav {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-sticky-nav);
+    border-top: var(--rule-bar) solid var(--color-ink);
+    background: var(--color-paper-3);
+  }
+
+  .bottom-nav-inner {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    min-height: 72px;
+  }
+
+  .bottom-nav a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2xs);
+    min-height: 72px;
+    color: var(--color-muted);
+    font-size: var(--text-xs);
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .bottom-nav a.is-active {
+    color: var(--color-accent);
+  }
+}

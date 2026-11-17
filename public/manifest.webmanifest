@@ -1,0 +1,17 @@
+{
+  "name": "LINUSKU — Live Tracker Bus Lintas USU",
+  "short_name": "LINUSKU",
+  "description": "Pantau posisi dan ETA Bus Lintas USU secara realtime.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
