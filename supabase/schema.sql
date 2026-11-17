@@ -50,6 +50,9 @@ create table if not exists public.crowd_reports (
   created_at timestamptz not null default now()
 );
 
+create index if not exists idx_crowd_reports_created_at
+  on public.crowd_reports (created_at desc);
+
 -- Migrasi aman untuk database yang sudah dibuat dari versi sebelumnya
 alter table public.buses
   add column if not exists driver_id uuid references auth.users(id) on delete set null;
@@ -70,6 +73,15 @@ create policy "Public read buses" on public.buses for select using (true);
 create policy "Public read stops" on public.stops for select using (true);
 create policy "Public read bus_positions" on public.bus_positions for select using (true);
 create policy "Public read crowd_reports" on public.crowd_reports for select using (true);
+
+grant select on table public.buses, public.stops, public.bus_positions
+  to anon, authenticated;
+grant insert, update, delete on table public.bus_positions to authenticated;
+grant insert on table public.crowd_reports to anon, authenticated;
+
+revoke select on table public.crowd_reports from public, anon, authenticated;
+grant select (bus_id, lat, lng, occupancy, created_at)
+  on table public.crowd_reports to anon, authenticated;
 
 -- Kebijakan Tulis Ketat (hanya akun driver yang ditugaskan ke bus aktif)
 drop policy if exists "MVP upsert bus_positions" on public.bus_positions;

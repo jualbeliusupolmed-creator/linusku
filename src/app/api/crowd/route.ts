@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
         lat,
         lng,
         occupancy,
-        reporter_fingerprint: key,
         created_at: updatedAt,
       });
       if (error) {
