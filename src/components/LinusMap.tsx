@@ -39,7 +39,7 @@ const CARTO_API_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY?.trim();
 const CITY_TILE_URL =
   process.env.NEXT_PUBLIC_MAP_TILE_URL?.trim() ||
   (CARTO_API_KEY
-    ? `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`
+    ? `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}`
     : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
 
 const FALLBACK_OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -48,7 +48,7 @@ const SATELLITE_TILE_URL =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
 const SATELLITE_LABELS_URL = CARTO_API_KEY
-  ? `https://basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`
+  ? `https://basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}`
   : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png';
 
 const [[SOUTH, WEST], [NORTH, EAST]] = USU_MAP_BOUNDS;
