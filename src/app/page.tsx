@@ -138,6 +138,7 @@ export default function HomePage() {
     distanceMeters: number;
   } | null>(null);
   const [showInfoCard, setShowInfoCard] = useState<boolean>(false);
+  const [isClosedOverlayDismissed, setIsClosedOverlayDismissed] = useState<boolean>(false);
   const [serviceSettings, setServiceSettings] =
     useState<LinusOperatingSettings>(DEFAULT_OPERATING_SETTINGS);
   const [etaSettings, setEtaSettings] =
@@ -916,16 +917,40 @@ export default function HomePage() {
               feedMode={feedMode}
               isOperating={operatingStatus.isOpen}
             />
-            {/* Overlay tegas saat bus TIDAK beroperasi — cegah kebingungan "bus hantu" */}
-            {!operatingStatus.isOpen && (
-              <div className="map-closed-overlay" role="status" aria-live="polite">
-                <div className="map-closed-card">
+            {/* Overlay tegas saat bus TIDAK beroperasi — dapat ditutup agar peta tetap bisa dilihat */}
+            {!operatingStatus.isOpen && !isClosedOverlayDismissed && (
+              <div
+                className="map-closed-overlay cursor-pointer"
+                role="status"
+                aria-live="polite"
+                onClick={() => setIsClosedOverlayDismissed(true)}
+              >
+                <div
+                  className="map-closed-card cursor-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    className="map-closed-close-btn"
+                    onClick={() => setIsClosedOverlayDismissed(true)}
+                    aria-label="Tutup dan lihat peta"
+                    title="Tutup pesan"
+                  >
+                    <X size={18} />
+                  </button>
                   <img src="/stickers/mascot-halte.png" alt="" className="w-14 h-14 object-contain" aria-hidden="true" />
                   <p className="map-closed-title">Bus Linus Sedang Istirahat</p>
                   <p className="map-closed-sub">
                     Pergerakan di bawah adalah <strong>simulasi demo</strong> saja — bukan posisi bus nyata.
                     <br />Beroperasi <strong>Senin–Jumat 07.00–17.00 WIB</strong>.
                   </p>
+                  <button
+                    type="button"
+                    className="map-closed-btn"
+                    onClick={() => setIsClosedOverlayDismissed(true)}
+                  >
+                    Lihat Peta (Simulasi)
+                  </button>
                 </div>
               </div>
             )}
