@@ -7,9 +7,12 @@ import {
   Bell,
   BellRing,
   Bus,
+  Check,
   Clock,
+  Compass,
   Copy,
   ExternalLink,
+  Info,
   MapPin,
   Navigation,
   Radio,
@@ -17,8 +20,11 @@ import {
   Search,
   Share2,
   ShoppingBag,
+  Sparkles,
   Star,
   Users,
+  WifiOff,
+  X,
 } from 'lucide-react';
 import {
   BusPosition,
@@ -38,6 +44,8 @@ import {
   findNearestStop,
   getLinusOperatingStatus,
   getNextDepartureTimes,
+  getUpcomingStop,
+  haversineDistanceKm,
 } from '@/data/usuRoutes';
 import {
   askNotificationPermission,
@@ -119,6 +127,10 @@ export default function HomePage() {
   const [stopsError, setStopsError] = useState('');
   const [settingsError, setSettingsError] = useState('');
   const [fleetError, setFleetError] = useState('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [showGuide, setShowGuide] = useState<boolean>(false);
+  const [sortByNearest, setSortByNearest] = useState<boolean>(false);
   const [serviceSettings, setServiceSettings] =
     useState<LinusOperatingSettings>(DEFAULT_OPERATING_SETTINGS);
   const [etaSettings, setEtaSettings] =
@@ -144,6 +156,43 @@ export default function HomePage() {
   const [operatingStatus, setOperatingStatus] = useState(
     getLinusOperatingStatus()
   );
+
+  // Auto-dismiss floating toast notification
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => {
+      setToastMessage(null);
+    }, 2800);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
+  // Pantau konektivitas jaringan pengguna (online/offline)
+  useEffect(() => {
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Periksa apakah panduan cepat pertama kali perlu ditampilkan
+  useEffect(() => {
+    try {
+      const dismissed = localStorage.getItem('linusku:hideQuickGuide');
+      if (!dismissed) setShowGuide(true);
+    } catch {}
+  }, []);
+
+  const dismissGuide = () => {
+    setShowGuide(false);
+    try {
+      localStorage.setItem('linusku:hideQuickGuide', '1');
+    } catch {}
+  };
 
   // Muat pengaturan yang diubah admin beserta geometri rute terbaru.
   useEffect(() => {
@@ -321,6 +370,15 @@ export default function HomePage() {
     e.stopPropagation();
     const next = updateFavoriteStop(stopId);
     setFavoriteStopIds(next);
+
+    const targetStop = stops.find((s) => s.id === stopId);
+    const isNowFavorite = next.includes(stopId);
+    setToastMessage(
+      isNowFavorite
+        ? `⭐ Halte ${targetStop?.name || ''} disimpan ke favorit!`
+        : `Halte ${targetStop?.name || ''} dihapus dari favorit.`
+    );
+
     const supabase = getSupabaseClient();
     if (supabase) {
       void supabase.auth.getSession().then(({ data }) => {
@@ -343,35 +401,38 @@ export default function HomePage() {
       setPassengerNotificationsOptedIn(false);
       setNotificationsEnabled(false);
       setNotificationStatus('Notifikasi keberangkatan dinonaktifkan.');
+      setToastMessage('🔕 Pengingat bus dinonaktifkan.');
       return;
     }
     const permission = await askNotificationPermission();
     setNotificationPermission(permission);
     if (permission !== 'granted') {
-      setNotificationStatus(
-        permission === 'denied'
-          ? 'Izin notifikasi ditolak browser.'
-          : 'Izin notifikasi belum diberikan browser.'
-      );
+      const msg = permission === 'denied'
+        ? 'Izin notifikasi ditolak browser.'
+        : 'Izin notifikasi belum diberikan browser.';
+      setNotificationStatus(msg);
+      setToastMessage(`⚠️ ${msg}`);
       return;
     }
     const saved = setPassengerNotificationsOptedIn(true);
     setNotificationsEnabled(saved);
-    setNotificationStatus(
-      saved
-        ? 'Notifikasi keberangkatan aktif untuk halte favorit.'
-        : 'Preferensi notifikasi tidak dapat disimpan di perangkat ini.'
-    );
+    const msg = saved
+      ? 'Notifikasi keberangkatan aktif untuk halte favorit.'
+      : 'Preferensi notifikasi tidak dapat disimpan di perangkat ini.';
+    setNotificationStatus(msg);
+    setToastMessage(saved ? '🔔 Pengingat bus aktif!' : msg);
   };
 
   const copySelectedEtaUrl = async () => {
     const result = await copyEtaUrl(selectedStop.id);
     setShareStatus(result.message);
+    setToastMessage(`📋 Tautan Halte ${selectedStop.name} disalin!`);
   };
 
   const shareSelectedEtaUrl = async () => {
     const result = await shareEtaUrl(selectedStop.id);
     setShareStatus(result.message);
+    setToastMessage(`🔗 Tautan Halte ${selectedStop.name} siap dibagikan!`);
   };
 
   const fetchPositions = useCallback(async (showSpinner = false) => {
@@ -577,10 +638,12 @@ export default function HomePage() {
           etaSettings,
           scheduleSettings,
         });
+        const upcoming = getUpcomingStop(bus, stops, activePolyline);
         return {
           bus,
           etaMinutes: details.minutes,
           details,
+          upcoming,
         };
       })
       .filter(({ bus }) =>
@@ -588,7 +651,7 @@ export default function HomePage() {
         etaSettings.staleThresholdSeconds * 1000
       )
       .sort((a, b) => a.etaMinutes - b.etaMinutes);
-  }, [buses, selectedStop, activePolyline, etaSettings, scheduleSettings]);
+  }, [buses, selectedStop, activePolyline, etaSettings, scheduleSettings, stops]);
 
   const notificationDepartures = useMemo<NextDeparture[]>(() => {
     const targetStopIds = Array.from(
@@ -676,9 +739,16 @@ export default function HomePage() {
       const aFav = favoriteStopIds.includes(a.id) ? 0 : 1;
       const bFav = favoriteStopIds.includes(b.id) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
+
+      if (sortByNearest && currentLocation) {
+        const distA = haversineDistanceKm(currentLocation.lat, currentLocation.lng, a.lat, a.lng);
+        const distB = haversineDistanceKm(currentLocation.lat, currentLocation.lng, b.lat, b.lng);
+        return distA - distB;
+      }
+
       return a.sequenceOrder - b.sequenceOrder;
     });
-  }, [stopQuery, favoriteStopIds, stops]);
+  }, [stopQuery, favoriteStopIds, stops, sortByNearest, currentLocation]);
   const operationsError = settingsError || stopsError || fleetError;
 
   return (
@@ -704,16 +774,36 @@ export default function HomePage() {
               className="live-chip active:translate-y-px disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
               disabled={isRefreshing}
             >
-              <RefreshCw size={16} />
-              <span>{lastSyncedAt ?? 'Segarkan'}</span>
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+              <span>{lastSyncedAt ? `${lastSyncedAt}` : 'Segarkan'}</span>
             </button>
-            <span className={`live-chip focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${feedMode === 'live' ? 'is-live' : ''}`} role="status">
-              <Radio size={16} />
-              <span>{!operatingStatus.isOpen ? 'Di luar jam operasional' : feedMode === 'live' ? 'Bus nyata aktif' : feedMode === 'community' ? 'Laporan mahasiswa' : feedMode === 'simulation' ? 'Simulasi bus' : 'Data tidak tersedia'}</span>
+            <span
+              className={`live-chip focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${feedMode === 'live' ? 'is-live' : ''}`}
+              role="status"
+            >
+              <Radio size={14} />
+              <span>
+                {!operatingStatus.isOpen
+                  ? 'Tutup'
+                  : feedMode === 'live'
+                    ? 'Bus Live'
+                    : feedMode === 'community'
+                      ? 'Laporan Mhs'
+                      : feedMode === 'simulation'
+                        ? 'Simulasi'
+                        : 'Offline'}
+              </span>
             </span>
           </div>
         </div>
       </header>
+
+      {!isOnline && (
+        <div className="offline-alert-strip" role="alert">
+          <WifiOff size={14} aria-hidden="true" />
+          <span>Koneksi offline. Menampilkan jadwal & rute statis kampus.</span>
+        </div>
+      )}
 
       <div className="operations-strip">
         <div
@@ -743,20 +833,6 @@ export default function HomePage() {
             </small>
           </span>
         </div>
-        <a
-          className="marketplace-button"
-          href="https://www.kampuskita.my.id/jual-beli"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Buka marketplace KampusKita"
-        >
-          <ShoppingBag size={18} aria-hidden="true" />
-          <span>
-            <strong>Marketplace</strong>
-            <small>Jual-beli KampusKita</small>
-          </span>
-          <ExternalLink size={15} aria-hidden="true" />
-        </a>
       </div>
 
       <main className="app-main">
@@ -773,56 +849,91 @@ export default function HomePage() {
               onLocateMe={findNearestFromLocation}
               isLocating={locationStatus.startsWith('Membaca')}
               currentLocation={currentLocation}
+              feedMode={feedMode}
+              isOperating={operatingStatus.isOpen}
             />
           </div>
         </section>
 
         <aside className="board-column" aria-label="Informasi kedatangan dan halte">
+          {showGuide && (
+            <div className="quick-guide-banner" role="complementary" aria-label="Panduan cepat">
+              <div className="quick-guide-content">
+                <img
+                  src="/stickers/mascot-map.png"
+                  alt=""
+                  className="quick-guide-avatar"
+                  aria-hidden="true"
+                />
+                <div className="quick-guide-text">
+                  <h4>Panduan Singkat Linus</h4>
+                  <p>
+                    Sentuh pin halte di peta atau pilih dari daftar halte untuk memantau kedatangan bus Linus secara langsung.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={dismissGuide}
+                className="quick-guide-dismiss"
+                aria-label="Tutup panduan"
+                title="Tutup panduan"
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
           <section className="arrival-board" aria-labelledby="arrival-title">
             <div className="arrival-head">
-              <div>
+              <div className="arrival-head-info">
                 <h2 id="arrival-title">{selectedStop.name}</h2>
                 <p className="stop-area">{selectedStop.area}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  ⭐ Simpan favorit · 🔔 Pengingat bus
+                </p>
               </div>
-              <span className="route-chip">
-                <Clock size={14} aria-hidden="true" />
-                {serviceSettings.openingTime.replace(':', '.')}-
-                {serviceSettings.closingTime.replace(':', '.')}
-              </span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void toggleNotifications()}
-                  disabled={!pushNotificationsEnabled || notificationPermission === 'unsupported'}
-                  aria-pressed={notificationsEnabled}
-                  aria-label={notificationsEnabled ? 'Matikan notifikasi halte' : 'Aktifkan notifikasi halte'}
-                  title={notificationsEnabled ? 'Matikan notifikasi halte' : 'Aktifkan notifikasi halte'}
-                  className="arrival-action"
-                >
-                  {notificationsEnabled ? <BellRing size={15} aria-hidden="true" /> : <Bell size={15} aria-hidden="true" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copySelectedEtaUrl()}
-                  aria-label="Salin tautan halte"
-                  title="Salin tautan halte"
-                  className="arrival-action"
-                >
-                  <Copy size={15} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void shareSelectedEtaUrl()}
-                  aria-label="Bagikan halte"
-                  title="Bagikan halte"
-                  className="arrival-action"
-                >
-                  <Share2 size={15} aria-hidden="true" />
-                </button>
+              <div className="arrival-head-actions">
+                <span className="route-chip">
+                  <Clock size={13} aria-hidden="true" />
+                  {serviceSettings.openingTime.replace(':', '.')}-
+                  {serviceSettings.closingTime.replace(':', '.')}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void toggleNotifications()}
+                    disabled={!pushNotificationsEnabled || notificationPermission === 'unsupported'}
+                    aria-pressed={notificationsEnabled}
+                    aria-label={notificationsEnabled ? 'Matikan pengingat halte' : 'Aktifkan pengingat halte'}
+                    title={notificationsEnabled ? 'Pengingat aktif: Matikan' : 'Ingatkan saat bus mendekati halte ini'}
+                    className="arrival-action"
+                  >
+                    {notificationsEnabled ? <BellRing size={15} aria-hidden="true" /> : <Bell size={15} aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copySelectedEtaUrl()}
+                    aria-label="Salin tautan halte"
+                    title="Salin tautan halte"
+                    className="arrival-action"
+                  >
+                    <Copy size={15} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void shareSelectedEtaUrl()}
+                    aria-label="Bagikan halte"
+                    title="Bagikan halte"
+                    className="arrival-action"
+                  >
+                    <Share2 size={15} aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             </div>
             {(notificationStatus || shareStatus) && (
-              <p className="mt-2 text-xs text-slate-600" role="status" aria-live="polite">
+              <p className="mt-2 text-xs text-slate-600 font-medium" role="status" aria-live="polite">
                 {[notificationStatus, shareStatus].filter(Boolean).join(' · ')}
               </p>
             )}
@@ -838,47 +949,131 @@ export default function HomePage() {
             )}
             {!operatingStatus.isOpen && (
               <p className="service-status-note" role="status">
-                Bus tidak beroperasi sekarang. Waktu dan jarak di bawah hanya simulasi.
+                ⚠️ Bus tidak beroperasi sekarang. Posisi di bawah hanyalah peragaan simulasi rute.
               </p>
             )}
 
             {stopEtas.length === 0 ? (
-              <p className="arrival-row">
-                {feedMode === 'offline' ? 'Data posisi belum tersedia. Coba segarkan kembali.' : 'Belum ada armada Linus aktif.'}
-              </p>
+              <div className="flex flex-col items-center justify-center p-6 text-center">
+                <img
+                  src="/stickers/mascot-halte.png"
+                  alt="Halte Linus"
+                  className="mb-2 h-20 w-20 object-contain"
+                />
+                <p className="text-sm font-bold text-slate-800">
+                  {feedMode === 'offline'
+                    ? 'Data posisi belum tersedia'
+                    : 'Belum ada armada Linus aktif di rute'}
+                </p>
+                <p className="mt-1 text-xs text-slate-500 max-w-xs">
+                  {feedMode === 'offline'
+                    ? 'Coba segarkan halaman atau periksa koneksi internetmu.'
+                    : 'Bus Linus beroperasi resmi Senin–Jumat pukul 07.00 – 17.00 WIB.'}
+                </p>
+              </div>
             ) : (
-              stopEtas.map(({ bus, etaMinutes }, index) => {
+              stopEtas.map(({ bus, etaMinutes, upcoming, details }, index) => {
+                const diffSec = Math.max(
+                  0,
+                  Math.floor(
+                    (Date.now() - new Date(bus.updatedAt).getTime()) / 1000
+                  )
+                );
                 const isStale =
-                  Date.now() - new Date(bus.updatedAt).getTime() >
-                  etaSettings.staleThresholdSeconds * 1000;
+                  diffSec > etaSettings.staleThresholdSeconds;
+                const isStationary = bus.speedKmh <= 2;
+                const isSimulation = !operatingStatus.isOpen || feedMode === 'simulation';
+                const freshnessText =
+                  diffSec < 20
+                    ? 'GPS realtime (<20 dtk)'
+                    : `Update ${diffSec < 60 ? `${diffSec} dtk` : `${Math.floor(diffSec / 60)} mnt`} lalu`;
+
+                const isHighConfidence = details.confidence >= 0.75;
+                const isMediumConfidence = details.confidence >= 0.45;
+
                 return (
                   <div className="arrival-row" key={bus.busId}>
                     <div className="arrival-bus-info">
                       <div className="bus-name">
                         <img className="bus-name-mark" src="/icon.svg" alt="" aria-hidden="true" />
-                        {bus.busId}
+                        <span className="font-extrabold">{bus.busId}</span>
                         {index === 0 && <span className="nearest-badge">Terdekat</span>}
+                        {isSimulation && (
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                            Simulasi
+                          </span>
+                        )}
                       </div>
-                      <span className={`occupancy-chip ${bus.occupancy}`}>
-                        <Users size={12} aria-hidden="true" />
-                        {occupancyBadge[bus.occupancy].label}
-                      </span>
-                      <small className="arrival-source">
-                        {!operatingStatus.isOpen
-                          ? 'Contoh simulasi'
-                          : bus.sourceType === 'driver'
-                            ? 'Posisi GPS driver'
-                            : bus.sourceType === 'crowd'
-                              ? 'Laporan mahasiswa'
-                              : 'Posisi simulasi'} · {new Date(bus.updatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                      </small>
+
+                      {/* Arah Rute Loop Bus */}
+                      {upcoming && (
+                        <div className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-800">
+                          <span>→ Menuju Halte {upcoming.stop.name}</span>
+                          {upcoming.isAtStop && (
+                            <span className="rounded bg-emerald-100 px-1 py-0.2 text-[10px] text-emerald-900">
+                              Di Halte
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Status Kecepatan: Berhenti vs Melaju */}
+                      <div className="mt-0.5 text-xs">
+                        {isStationary ? (
+                          <span className="font-medium text-amber-800">
+                            🛑 Sedang berhenti / naik-turun
+                          </span>
+                        ) : (
+                          <span className="font-medium text-slate-700">
+                            ⚡ Sedang melaju (~{Math.round(bus.speedKmh)} km/jam)
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <span className={`occupancy-chip ${bus.occupancy}`}>
+                          <Users size={12} aria-hidden="true" />
+                          {occupancyBadge[bus.occupancy].label}
+                        </span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                            isHighConfidence
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : isMediumConfidence
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-slate-50 text-slate-600 border border-slate-200'
+                          }`}
+                          title={`Tingkat keyakinan estimasi: ${Math.round(details.confidence * 100)}%`}
+                        >
+                          {isHighConfidence ? '🟢 Akurasi Tinggi' : isMediumConfidence ? '🟡 Estimasi Rute' : '⚪ Posisi Terakhir'}
+                        </span>
+                        <small className="arrival-source">
+                          {isSimulation
+                            ? 'Contoh Simulasi'
+                            : bus.sourceType === 'driver'
+                              ? 'GPS Driver'
+                              : bus.sourceType === 'crowd'
+                                ? 'Laporan Mahasiswa'
+                                : 'Simulasi'} · {freshnessText} · ~{details.distanceKm.toFixed(1)} km
+                        </small>
+                      </div>
+
                       {isStale && (
-                        <small className="mt-1 block font-semibold text-amber-700">Data posisi lama</small>
+                        <small className="mt-1 block font-semibold text-amber-700">⚠️ Sinyal GPS sempat terhenti</small>
                       )}
                     </div>
                     <div className="eta">
-                      {etaMinutes <= 1 ? 'Dekat' : etaMinutes}
-                      <small>{etaMinutes <= 1 ? 'saat ini' : 'menit'}</small>
+                      {isSimulation ? (
+                        <>
+                          ~{etaMinutes}
+                          <small className="text-amber-800 font-bold">simulasi</small>
+                        </>
+                      ) : (
+                        <>
+                          {etaMinutes <= 1 ? 'Dekat' : etaMinutes}
+                          <small>{etaMinutes <= 1 ? 'di halte' : 'menit'}</small>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -888,71 +1083,61 @@ export default function HomePage() {
 
           <section className="utility-panel" aria-label="Lokasi dan pelaporan penumpang">
             <div className="utility-heading">
-              <strong>Laporkan posisi</strong>
-              <small>Pilih armada dan kepadatan</small>
+              <strong>Bantu Info Linus</strong>
+              <small>Lapor posisi & halte terdekat</small>
             </div>
+
             <button
               type="button"
-              className="nearest-button"
+              className="nearest-button active:translate-y-px"
               onClick={findNearestFromLocation}
               disabled={Boolean(locationStatus.startsWith('Membaca'))}
             >
               <Navigation size={16} />
-              Halte terdekat dari lokasiku
+              {locationStatus.startsWith('Membaca') ? 'Mencari lokasi…' : 'Cari halte terdekat dari lokasiku'}
             </button>
             {(nearestInfo || locationStatus) && (
-              <p className="utility-status" role="status">
+              <p className="utility-status font-medium text-emerald-800" role="status">
                 {locationStatus}
               </p>
             )}
 
-            <div className="crowd-row">
-              <label>
-                Pilih bus
-                <select
-                  value={crowdBusId}
-                  disabled={fleet.length === 0}
-                  onChange={(event) => setCrowdBusId(event.target.value)}
-                  className="crowd-select"
+            <div className="mt-3 border border-slate-200 bg-slate-50 p-2.5">
+              <div className="flex items-center justify-between gap-1 text-xs font-bold text-slate-800">
+                <span>Melihat Linus di Halte {selectedStop.name}?</span>
+                <span className="text-[10px] text-slate-500 font-normal">Crowdsourcing</span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Pilih kondisi muatan bus saat terlihat:
+              </p>
+
+              <div className="density-chips">
+                <button
+                  type="button"
+                  className={`density-chip-btn ${crowdOccupancy === 'low' ? 'is-active text-emerald-800 border-emerald-500' : ''}`}
+                  onClick={() => setCrowdOccupancy('low')}
                 >
-                  {fleet.length === 0 && <option value="">Tidak ada armada aktif</option>}
-                  {fleet.map((bus) => (
-                    <option value={bus.id} key={bus.id}>{bus.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Kepadatan
-                <select
-                  value={crowdOccupancy}
-                  onChange={(event) =>
-                    setCrowdOccupancy(event.target.value as BusPosition['occupancy'])
-                  }
-                  className="crowd-select"
+                  🟢 Lega
+                </button>
+                <button
+                  type="button"
+                  className={`density-chip-btn ${crowdOccupancy === 'medium' ? 'is-active text-amber-800 border-amber-500' : ''}`}
+                  onClick={() => setCrowdOccupancy('medium')}
                 >
-                  <option value="low">Lega</option>
-                  <option value="medium">Sedang</option>
-                  <option value="full">Penuh</option>
-                </select>
-              </label>
+                  🟡 Sedang
+                </button>
+                <button
+                  type="button"
+                  className={`density-chip-btn ${crowdOccupancy === 'full' ? 'is-active text-rose-800 border-rose-500' : ''}`}
+                  onClick={() => setCrowdOccupancy('full')}
+                >
+                  🔴 Penuh
+                </button>
+              </div>
+
               <button
                 type="button"
-                className="crowd-button"
-                onClick={shareCrowdLocation}
-                disabled={
-                  maintenanceMode ||
-                  !operatingStatus.isOpen ||
-                  !crowdReportingEnabled ||
-                  crowdStatus.startsWith('Membaca') ||
-                  fleet.length === 0
-                }
-              >
-                <MapPin size={16} />
-                {operatingStatus.isOpen ? 'Kirim lokasi saya' : 'Aktif saat bus beroperasi'}
-              </button>
-              <button
-                type="button"
-                className="crowd-button"
+                className="crowd-button mt-2 active:translate-y-px"
                 onClick={() => void shareCrowdAtStop()}
                 disabled={
                   maintenanceMode ||
@@ -962,15 +1147,50 @@ export default function HomePage() {
                   fleet.length === 0
                 }
               >
-                <MapPin size={16} />
-                {operatingStatus.isOpen ? 'Laporkan kepadatan halte' : 'Pelaporan belum tersedia'}
+                <MapPin size={15} />
+                {operatingStatus.isOpen
+                  ? `Kirim Laporan: Bus di Halte ${selectedStop.name}`
+                  : 'Aktif saat jam operasional bus'}
               </button>
+
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-500">
+                <label className="flex items-center gap-1">
+                  <span>Armada:</span>
+                  <select
+                    value={crowdBusId}
+                    disabled={fleet.length === 0}
+                    onChange={(e) => setCrowdBusId(e.target.value)}
+                    className="border border-slate-300 bg-white px-1 py-0.5 text-[11px]"
+                  >
+                    {fleet.map((bus) => (
+                      <option value={bus.id} key={bus.id}>
+                        {bus.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={shareCrowdLocation}
+                  disabled={
+                    maintenanceMode ||
+                    !operatingStatus.isOpen ||
+                    !crowdReportingEnabled ||
+                    crowdStatus.startsWith('Membaca') ||
+                    fleet.length === 0
+                  }
+                  className="font-semibold text-emerald-700 hover:underline"
+                  title="Gunakan hanya jika kamu sedang berada di dalam armada Linus"
+                >
+                  Sedang di dalam bus? Kirim GPS
+                </button>
+              </div>
             </div>
-            <p className="utility-status utility-explanation">
-              Saat mengirim, lokasi perangkat ini dan tingkat kepadatan yang dipilih akan dibagikan sebagai laporan posisi bus. Kirim hanya saat kamu sedang berada di Linus.
-            </p>
+
             {crowdStatus && (
-              <p className="utility-status" role="status">{crowdStatus}</p>
+              <p className="utility-status font-medium text-emerald-800 mt-2" role="status">
+                {crowdStatus}
+              </p>
             )}
           </section>
 
@@ -986,6 +1206,31 @@ export default function HomePage() {
                 aria-label="Cari halte"
               />
             </div>
+
+            <div className="stop-filter-chips px-2">
+              <button
+                type="button"
+                onClick={() => setSortByNearest(false)}
+                className={`stop-filter-chip ${!sortByNearest ? 'is-active' : ''}`}
+              >
+                Urutan Rute
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!currentLocation) {
+                    findNearestFromLocation();
+                  }
+                  setSortByNearest(true);
+                }}
+                className={`stop-filter-chip ${sortByNearest ? 'is-active' : ''}`}
+                title="Urutkan halte terdekat dari posisi kamu"
+              >
+                <Compass size={12} aria-hidden="true" />
+                <span>Terdekat {currentLocation ? '✓' : '(GPS)'}</span>
+              </button>
+            </div>
+
             <div className="stop-list">
               {filteredStops.map((stop) => {
                 const isSelected = stop.id === selectedStop.id;
@@ -993,6 +1238,18 @@ export default function HomePage() {
                 const nearest = buses.length
                   ? Math.min(...buses.map((b) => estimateEtaMinutes(b, stop, activePolyline, etaSettings)))
                   : null;
+
+                const distMeters = currentLocation
+                  ? Math.round(
+                      haversineDistanceKm(
+                        currentLocation.lat,
+                        currentLocation.lng,
+                        stop.lat,
+                        stop.lng
+                      ) * 1000
+                    )
+                  : null;
+
                 return (
                   <div key={stop.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-stretch">
                     <button
@@ -1004,7 +1261,14 @@ export default function HomePage() {
                         <span className="stop-name">
                           <MapPin size={13} aria-hidden="true" /> {stop.name}
                         </span>
-                        <span className="stop-area">{stop.area}</span>
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          <span className="stop-area">{stop.area}</span>
+                          {distMeters !== null && (
+                            <span className="rounded bg-blue-50 px-1 py-0.2 text-[10px] font-semibold text-blue-700">
+                              📍 {distMeters < 1000 ? `${distMeters} m` : `${(distMeters / 1000).toFixed(1)} km`}
+                            </span>
+                          )}
+                        </span>
                       </span>
                       {nearest !== null && (
                         <span className="stop-nearest">
@@ -1031,19 +1295,45 @@ export default function HomePage() {
             </div>
           </section>
 
-          <a
-            className="studentplace-banner"
-            href="https://studentplace.id"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Buka StudentPlace"
-          >
-            <span>
-              <strong>Kampus kita, open po</strong>
-              <small>Temukan kegiatan dan komunitas USU di StudentPlace</small>
-            </span>
-            <Navigation size={16} />
-          </a>
+          {/* Ekosistem Mahasiswa USU */}
+          <div className="campus-ecosystem-card">
+            <div className="ecosystem-heading">
+              <span className="font-bold text-xs uppercase tracking-wider text-slate-500">
+                Ekosistem Kampus USU
+              </span>
+            </div>
+            <div className="ecosystem-links">
+              <a
+                className="ecosystem-link-item active:translate-y-px"
+                href="https://www.kampuskita.my.id/jual-beli"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Buka Marketplace KampusKita"
+              >
+                <ShoppingBag size={18} className="text-emerald-700 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-xs text-slate-900">Marketplace KampusKita</div>
+                  <div className="text-[11px] text-slate-500 truncate">Jual-beli & Open PO mahasiswa USU</div>
+                </div>
+                <ExternalLink size={13} className="text-slate-400 shrink-0" />
+              </a>
+
+              <a
+                className="ecosystem-link-item active:translate-y-px"
+                href="https://studentplace.id"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Buka StudentPlace USU"
+              >
+                <Navigation size={18} className="text-blue-700 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-xs text-slate-900">StudentPlace USU</div>
+                  <div className="text-[11px] text-slate-500 truncate">Komunitas, event & info kampus</div>
+                </div>
+                <ExternalLink size={13} className="text-slate-400 shrink-0" />
+              </a>
+            </div>
+          </div>
         </aside>
       </main>
 
@@ -1054,6 +1344,12 @@ export default function HomePage() {
           <a href="#halte" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><MapPin size={18} />Halte</a>
         </div>
       </nav>
+
+      {toastMessage && (
+        <div className="linus-toast" role="status" aria-live="polite">
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

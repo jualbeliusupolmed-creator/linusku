@@ -1,5 +1,14 @@
-const CACHE_NAME = 'linusku-shell-v2';
-const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/linus-maskot.svg'];
+const CACHE_NAME = 'linusku-shell-v4';
+const SHELL = [
+  '/',
+  '/manifest.webmanifest',
+  '/icon.svg',
+  '/linus-maskot.svg',
+  '/icon.png',
+  '/linus-maskot.png',
+  '/stickers/mascot-map.png',
+  '/stickers/mascot-halte.png',
+];
 const NEVER_CACHE_PATHS = ['/admin', '/driver'];
 const STATIC_DESTINATIONS = new Set([
   'font',

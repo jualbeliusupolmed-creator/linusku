@@ -1424,3 +1424,47 @@ export function interpolateAlongRoute(
 
   return { lat, lng, heading };
 }
+
+/**
+ * Menemukan halte tujuan berikutnya yang akan dilewati bus di sepanjang rute loop.
+ */
+export function getUpcomingStop(
+  bus: Pick<BusPosition, 'lat' | 'lng'> & Partial<Pick<BusPosition, 'speedKmh'>>,
+  stops: BusStop[] = USU_STOPS,
+  polyline: [number, number][] = ROUTE_POLYLINE
+): {
+  stop: BusStop;
+  distanceKm: number;
+  isAtStop: boolean;
+} | null {
+  if (!stops || stops.length === 0) return null;
+  const activeLine = polyline.length >= 2 ? polyline : ROUTE_POLYLINE;
+
+  let stoppedAt: BusStop | null = null;
+  for (const s of stops) {
+    const d = haversineDistanceKm(bus.lat, bus.lng, s.lat, s.lng);
+    if (d <= 0.045 && (bus.speedKmh ?? 0) <= 5) {
+      stoppedAt = s;
+      break;
+    }
+  }
+
+  let bestStop: BusStop = stops[0];
+  let minForwardDist = Number.POSITIVE_INFINITY;
+  const thresholdKm = stoppedAt ? 0.05 : 0.02;
+
+  for (const s of stops) {
+    const forwardDist = routeDistanceToStopKm(bus.lat, bus.lng, s, activeLine);
+    if (forwardDist > thresholdKm && forwardDist < minForwardDist) {
+      minForwardDist = forwardDist;
+      bestStop = s;
+    }
+  }
+
+  return {
+    stop: bestStop,
+    distanceKm: Number.isFinite(minForwardDist) ? minForwardDist : 0,
+    isAtStop: Boolean(stoppedAt),
+  };
+}
+

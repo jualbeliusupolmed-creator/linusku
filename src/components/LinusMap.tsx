@@ -26,6 +26,7 @@ import {
   USU_MAP_BOUNDS,
   USU_STOPS,
   estimateEtaMinutes,
+  getUpcomingStop,
 } from '@/data/usuRoutes';
 
 interface LinusMapProps {
@@ -39,6 +40,8 @@ interface LinusMapProps {
   currentLocation?: { lat: number; lng: number } | null;
   etaSettings?: ETASettings;
   mapSettings?: MapSettings;
+  feedMode?: 'live' | 'community' | 'simulation' | 'offline';
+  isOperating?: boolean;
 }
 
 type MapMode = 'city' | 'satellite';
@@ -146,6 +149,26 @@ function MapFlyToLocation({
   return null;
 }
 
+function MapResizer() {
+  const map = useMap();
+
+  useEffect(() => {
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleResize);
+    const timeout = setTimeout(() => {
+      map.invalidateSize();
+    }, 300);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timeout);
+    };
+  }, [map]);
+
+  return null;
+}
+
 export default function LinusMap({
   buses,
   stops = USU_STOPS,
@@ -157,6 +180,8 @@ export default function LinusMap({
   currentLocation = null,
   etaSettings = DEFAULT_ETA_SETTINGS,
   mapSettings = DEFAULT_MAP_SETTINGS,
+  feedMode,
+  isOperating = true,
 }: LinusMapProps) {
   const [mapMode, setMapMode] = useState<MapMode>('city');
   const [useFallbackOsm, setUseFallbackOsm] = useState(false);
@@ -276,21 +301,37 @@ export default function LinusMap({
 
         <MapFlyToStop selectedStopId={selectedStopId} stops={stops} />
         <MapFlyToLocation location={currentLocation} />
+        <MapResizer />
         {currentLocation && (
-          <CircleMarker
-            center={[currentLocation.lat, currentLocation.lng]}
-            radius={9}
-            pathOptions={{
-              color: '#ffffff',
-              weight: 3,
-              fillColor: '#2563eb',
-              fillOpacity: 1,
-            }}
-          >
-            <Popup>
-              <div className="map-popup-name">Lokasi kamu</div>
-            </Popup>
-          </CircleMarker>
+          <>
+            <CircleMarker
+              center={[currentLocation.lat, currentLocation.lng]}
+              radius={22}
+              pathOptions={{
+                color: '#3b82f6',
+                weight: 1.5,
+                fillColor: '#60a5fa',
+                fillOpacity: 0.25,
+              }}
+            />
+            <CircleMarker
+              center={[currentLocation.lat, currentLocation.lng]}
+              radius={8}
+              pathOptions={{
+                color: '#ffffff',
+                weight: 2.5,
+                fillColor: '#2563eb',
+                fillOpacity: 1,
+              }}
+            >
+              <Popup>
+                <div className="min-w-[130px] text-center">
+                  <p className="map-popup-name font-bold text-blue-700">📍 Posisi Kamu</p>
+                  <p className="text-[11px] text-slate-500">Titik lokasi GPS kamu</p>
+                </div>
+              </Popup>
+            </CircleMarker>
+          </>
         )}
 
         <Polyline
@@ -342,29 +383,65 @@ export default function LinusMap({
           );
         })}
 
-        {buses.map((bus) => (
-          <Marker
-            key={bus.busId}
-            position={[bus.lat, bus.lng]}
-            icon={createBusIcon(bus)}
-          >
-            <Popup>
-              <div className="min-w-[160px] space-y-1">
-                <p className="map-popup-name">{bus.name}</p>
-                <p className="map-popup-detail">
-                  Kecepatan: {Math.round(bus.speedKmh)} km/jam
-                </p>
-                <p className="map-popup-detail">
-                  Kepadatan:{' '}
-                  <span className="font-semibold">
-                    {occupancyLabel[bus.occupancy]}
-                  </span>
-                </p>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {buses.map((bus) => {
+          const upcoming = getUpcomingStop(bus, stops, routePolyline);
+          const isStationary = bus.speedKmh <= 2;
+          const isSimulation = !isOperating || feedMode === 'simulation';
+
+          return (
+            <Marker
+              key={bus.busId}
+              position={[bus.lat, bus.lng]}
+              icon={createBusIcon(bus)}
+            >
+              <Popup>
+                <div className="min-w-[170px] space-y-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="map-popup-name font-bold">{bus.name}</p>
+                    {isSimulation && (
+                      <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-800">
+                        Simulasi
+                      </span>
+                    )}
+                  </div>
+                  {upcoming && (
+                    <p className="text-xs font-semibold text-emerald-800">
+                      → Menuju: Halte {upcoming.stop.name}
+                    </p>
+                  )}
+                  <p className="map-popup-detail text-xs">
+                    Status:{' '}
+                    {isStationary
+                      ? '🛑 Berhenti / Naik-turun'
+                      : `⚡ Melaju (~${Math.round(bus.speedKmh)} km/jam)`}
+                  </p>
+                  <p className="map-popup-detail text-xs">
+                    Kepadatan:{' '}
+                    <span
+                      className="font-semibold"
+                      style={{ color: occupancyColor[bus.occupancy] }}
+                    >
+                      {occupancyLabel[bus.occupancy]}
+                    </span>
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
       </MapContainer>
+
+      {(!isOperating || feedMode === 'simulation') ? (
+        <div className="pointer-events-none absolute top-14 left-3 z-20 flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1 text-xs font-semibold text-amber-900 shadow-sm backdrop-blur-xs">
+          <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+          <span>Mode Simulasi (Bus tidak aktif di kampus)</span>
+        </div>
+      ) : feedMode === 'live' ? (
+        <div className="pointer-events-none absolute top-14 left-3 z-20 flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50/95 px-3 py-1 text-xs font-semibold text-emerald-900 shadow-sm backdrop-blur-xs">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          <span>Live GPS Pengemudi</span>
+        </div>
+      ) : null}
     </div>
   );
 }

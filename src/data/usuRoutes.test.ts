@@ -10,6 +10,7 @@ import {
   estimateEtaMinutes,
   getNextDepartureTimes,
   getTrafficMultiplier,
+  getUpcomingStop,
   haversineDistanceKm,
   interpolateAlongRoute,
   isInsideCampus,
@@ -390,5 +391,16 @@ describe('schedule and traffic helpers', () => {
     expect(peak).toBeGreaterThan(normal);
     expect(normal).toBe(1);
     expect(outside).toBe(1);
+  });
+
+  it('determines the upcoming stop along the loop route', () => {
+    const firstStop = USU_STOPS[0];
+    const upcoming = getUpcomingStop(
+      { lat: firstStop.lat, lng: firstStop.lng, speedKmh: 15 },
+      USU_STOPS
+    );
+    expect(upcoming).not.toBeNull();
+    expect(upcoming?.stop.id).not.toBe(firstStop.id);
+    expect(upcoming?.distanceKm).toBeGreaterThan(0);
   });
 });
