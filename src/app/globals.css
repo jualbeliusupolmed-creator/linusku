@@ -61,11 +61,12 @@ body {
   top: var(--space-sm);
   left: var(--space-sm);
   z-index: var(--z-raised);
-  max-width: 260px;
+  max-width: 290px;
   border: var(--rule-hair) solid var(--color-ink);
   background: var(--color-paper-3);
-  padding: var(--space-xs) var(--space-sm);
+  padding: 6px 10px;
   box-shadow: var(--shadow-card);
+  border-radius: 8px;
 }
 
 .map-use-guide strong,
@@ -1160,7 +1161,12 @@ body {
 
 @media (max-width: 40rem) {
   .map-use-guide {
-    max-width: 180px;
+    max-width: 220px;
+    padding: 5px 8px;
+  }
+
+  .map-use-guide strong {
+    font-size: 0.775rem;
   }
 
   .map-use-guide span {

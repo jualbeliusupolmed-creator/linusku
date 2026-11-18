@@ -224,7 +224,20 @@ export default function LinusMap({
   return (
     <div className="relative h-full w-full">
       <div className="map-use-guide" role="status">
-        <strong>Pilih halte untuk melihat ETA</strong>
+        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+          <strong>Pilih halte untuk melihat ETA</strong>
+          {(!isOperating || feedMode === 'simulation') ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-bold text-amber-900 shrink-0">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Simulasi
+            </span>
+          ) : feedMode === 'live' ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold text-emerald-900 shrink-0">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Live GPS
+            </span>
+          ) : null}
+        </div>
         <span>Klik marker atau nama halte di samping</span>
       </div>
       {/* Toggle Mode Kota / Satelit */}
@@ -441,18 +454,6 @@ export default function LinusMap({
           );
         })}
       </MapContainer>
-
-      {(!isOperating || feedMode === 'simulation') ? (
-        <div className="pointer-events-none absolute top-14 left-3 z-20 flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1 text-xs font-semibold text-amber-900 shadow-sm backdrop-blur-xs">
-          <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-          <span>Mode Simulasi (Bus tidak aktif di kampus)</span>
-        </div>
-      ) : feedMode === 'live' ? (
-        <div className="pointer-events-none absolute top-14 left-3 z-20 flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50/95 px-3 py-1 text-xs font-semibold text-emerald-900 shadow-sm backdrop-blur-xs">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          <span>Live GPS Pengemudi</span>
-        </div>
-      ) : null}
     </div>
   );
 }
