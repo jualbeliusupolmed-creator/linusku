@@ -7,14 +7,48 @@ const supabasePublishableKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
-let client: SupabaseClient | null = null;
+interface ClientOptions {
+  rememberSession?: boolean;
+  storageKey?: string;
+}
 
-export function getSupabaseClient(): SupabaseClient | null {
+const clients = new Map<string, SupabaseClient>();
+
+export function getSupabaseClient(
+  options: ClientOptions = {}
+): SupabaseClient | null {
   if (!isSupabaseConfigured || !supabaseUrl || !supabasePublishableKey) {
     return null;
   }
-  if (!client) {
-    client = createClient(supabaseUrl, supabasePublishableKey);
+
+  const { rememberSession, storageKey } = options;
+  const clientKey =
+    rememberSession === undefined
+      ? 'default'
+      : `${storageKey ?? 'custom'}:${rememberSession ? 'local' : 'session'}`;
+  const existingClient = clients.get(clientKey);
+  if (existingClient) {
+    return existingClient;
   }
+
+  const authOptions =
+    rememberSession === undefined
+      ? undefined
+      : {
+          persistSession: true,
+          storageKey,
+          storage:
+            typeof window === 'undefined'
+              ? undefined
+              : rememberSession
+                ? window.localStorage
+                : window.sessionStorage,
+        };
+  const client = createClient(
+    supabaseUrl,
+    supabasePublishableKey,
+    authOptions ? { auth: authOptions } : undefined
+  );
+  clients.set(clientKey, client);
   return client;
 }

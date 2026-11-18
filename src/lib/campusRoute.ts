@@ -1,8 +1,12 @@
-import { ROUTE_POLYLINE, USU_STOPS } from '@/data/usuRoutes';
+import {
+  USU_STOPS,
+  type BusStop,
+} from '@/data/usuRoutes';
 
 const ROUTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 jam
 
 let cachedRoadPolyline: {
+  signature: string;
   points: [number, number][];
   source: 'osrm' | 'fallback';
   expiresAt: number;
@@ -15,9 +19,30 @@ let cachedRoadPolyline: {
 export async function getCampusRoadPolyline(): Promise<{
   points: [number, number][];
   source: 'osrm' | 'fallback';
+}>;
+export async function getCampusRoadPolyline(
+  stops: BusStop[]
+): Promise<{
+  points: [number, number][];
+  source: 'osrm' | 'fallback';
+}>;
+export async function getCampusRoadPolyline(
+  stops: BusStop[] = USU_STOPS
+): Promise<{
+  points: [number, number][];
+  source: 'osrm' | 'fallback';
 }> {
   const now = Date.now();
-  if (cachedRoadPolyline && now < cachedRoadPolyline.expiresAt) {
+  const routeStops = stops.length >= 2 ? stops : USU_STOPS;
+  const signature = routeStops
+    .map((stop) => `${stop.id}:${stop.lat},${stop.lng}`)
+    .join('|');
+
+  if (
+    cachedRoadPolyline &&
+    cachedRoadPolyline.signature === signature &&
+    now < cachedRoadPolyline.expiresAt
+  ) {
     return {
       points: cachedRoadPolyline.points,
       source: cachedRoadPolyline.source,
@@ -25,7 +50,7 @@ export async function getCampusRoadPolyline(): Promise<{
   }
 
   try {
-    const waypoints = [...USU_STOPS, USU_STOPS[0]]
+    const waypoints = [...routeStops, routeStops[0]]
       .map((stop) => `${stop.lng},${stop.lat}`)
       .join(';');
 
@@ -64,6 +89,7 @@ export async function getCampusRoadPolyline(): Promise<{
     ]);
 
     cachedRoadPolyline = {
+      signature,
       points: leafletPoints,
       source: 'osrm',
       expiresAt: now + ROUTE_CACHE_TTL_MS,
@@ -71,11 +97,16 @@ export async function getCampusRoadPolyline(): Promise<{
 
     return { points: leafletPoints, source: 'osrm' };
   } catch {
+    const fallbackPoints: [number, number][] = [
+      ...routeStops.map((stop): [number, number] => [stop.lat, stop.lng]),
+      [routeStops[0].lat, routeStops[0].lng],
+    ];
     cachedRoadPolyline = {
-      points: ROUTE_POLYLINE,
+      signature,
+      points: fallbackPoints,
       source: 'fallback',
       expiresAt: now + 60 * 1000, // coba ulang 1 menit lagi jika gagal
     };
-    return { points: ROUTE_POLYLINE, source: 'fallback' };
+    return { points: fallbackPoints, source: 'fallback' };
   }
 }

@@ -26,6 +26,7 @@ import {
 
 interface LinusMapProps {
   buses: BusPosition[];
+  stops?: BusStop[];
   routePolyline?: [number, number][];
   selectedStopId: string | null;
   onSelectStop: (stop: BusStop) => void;
@@ -110,22 +111,29 @@ function createBusIcon(bus: BusPosition) {
   });
 }
 
-function MapFlyToStop({ selectedStopId }: { selectedStopId: string | null }) {
+function MapFlyToStop({
+  selectedStopId,
+  stops,
+}: {
+  selectedStopId: string | null;
+  stops: BusStop[];
+}) {
   const map = useMap();
 
   useEffect(() => {
     if (!selectedStopId) return;
-    const target = USU_STOPS.find((s) => s.id === selectedStopId);
+    const target = stops.find((s) => s.id === selectedStopId);
     if (target) {
       map.flyTo([target.lat, target.lng], 16, { duration: 0.7 });
     }
-  }, [map, selectedStopId]);
+  }, [map, selectedStopId, stops]);
 
   return null;
 }
 
 export default function LinusMap({
   buses,
+  stops = USU_STOPS,
   routePolyline = ROUTE_POLYLINE,
   selectedStopId,
   onSelectStop,
@@ -158,15 +166,12 @@ export default function LinusMap({
   return (
     <div className="relative h-full w-full">
       {/* Toggle Mode Kota / Satelit */}
-      <div className="absolute right-3 top-3 z-[400] flex items-center rounded-xl border border-slate-200 bg-white/95 p-1 shadow-md backdrop-blur">
+      <div className="map-mode-toggle">
         <button
           type="button"
           onClick={() => handleChangeMode('city')}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
-            mapMode === 'city'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+          className={`map-mode-button ${mapMode === 'city' ? 'is-selected' : ''}`}
+          aria-pressed={mapMode === 'city'}
         >
           <MapIcon className="h-3.5 w-3.5" />
           Kota
@@ -174,11 +179,8 @@ export default function LinusMap({
         <button
           type="button"
           onClick={() => handleChangeMode('satellite')}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
-            mapMode === 'satellite'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+          className={`map-mode-button ${mapMode === 'satellite' ? 'is-selected' : ''}`}
+          aria-pressed={mapMode === 'satellite'}
         >
           <Globe className="h-3.5 w-3.5" />
           Satelit
@@ -238,7 +240,7 @@ export default function LinusMap({
           }}
         />
 
-        <MapFlyToStop selectedStopId={selectedStopId} />
+        <MapFlyToStop selectedStopId={selectedStopId} stops={stops} />
 
         <Polyline
           positions={routePolyline}
@@ -249,7 +251,7 @@ export default function LinusMap({
           }}
         />
 
-        {USU_STOPS.map((stop) => {
+        {stops.map((stop) => {
           const isSelected = stop.id === selectedStopId;
           const nearestEta = buses.length
             ? Math.min(
@@ -274,15 +276,11 @@ export default function LinusMap({
             >
               <Popup>
                 <div className="min-w-[170px] space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Halte #{stop.sequenceOrder}
-                  </p>
-                  <p className="text-sm font-bold text-slate-900">
-                    {stop.name}
-                  </p>
-                  <p className="text-xs text-slate-500">{stop.area}</p>
+                  <p className="map-popup-label">Halte {stop.sequenceOrder}</p>
+                  <p className="map-popup-name">{stop.name}</p>
+                  <p className="map-popup-area">{stop.area}</p>
                   {nearestEta !== null && (
-                    <p className="pt-1 text-xs font-semibold text-emerald-700">
+                    <p className="map-popup-eta">
                       Bus terdekat: ~{nearestEta} menit
                     </p>
                   )}
@@ -300,19 +298,17 @@ export default function LinusMap({
           >
             <Popup>
               <div className="min-w-[160px] space-y-1">
-                <p className="text-sm font-bold text-slate-900">{bus.name}</p>
-                <p className="text-xs text-slate-600">
+                <p className="map-popup-name">{bus.name}</p>
+                <p className="map-popup-detail">
                   Kecepatan: {Math.round(bus.speedKmh)} km/jam
                 </p>
-                <p className="text-xs text-slate-600">
+                <p className="map-popup-detail">
                   Kepadatan:{' '}
                   <span className="font-semibold">
                     {occupancyLabel[bus.occupancy]}
                   </span>
                 </p>
-                <p className="text-[11px] text-slate-400">
-                  Sumber: {bus.sourceType}
-                </p>
+                <p className="map-popup-detail">Sumber: {bus.sourceType}</p>
               </div>
             </Popup>
           </Marker>

@@ -9,6 +9,20 @@ export interface BusStop {
 
 export type OccupancyLevel = 'low' | 'medium' | 'full';
 
+export interface LinusOperatingSettings {
+  serviceDays: number[];
+  openingTime: string;
+  closingTime: string;
+  timeZone: string;
+}
+
+export const DEFAULT_OPERATING_SETTINGS: LinusOperatingSettings = {
+  serviceDays: [1, 2, 3, 4, 5],
+  openingTime: '07:00',
+  closingTime: '17:00',
+  timeZone: 'Asia/Jakarta',
+};
+
 export interface BusPosition {
   busId: string;
   name: string;
@@ -144,9 +158,11 @@ export function isInsideCampus(lat: number, lng: number): boolean {
 
 export function findNearestStop(
   lat: number,
-  lng: number
+  lng: number,
+  stops: BusStop[] = USU_STOPS
 ): { stop: BusStop; distanceKm: number; distanceMeters: number } {
-  return USU_STOPS.map((stop) => {
+  const availableStops = stops.length > 0 ? stops : USU_STOPS;
+  return availableStops.map((stop) => {
     const straightDistanceKm = haversineDistanceKm(
       lat,
       lng,
@@ -161,9 +177,12 @@ export function findNearestStop(
   }).sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
 }
 
-export function getLinusOperatingStatus(now = new Date()) {
+export function getLinusOperatingStatus(
+  now = new Date(),
+  settings: LinusOperatingSettings = DEFAULT_OPERATING_SETTINGS
+) {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Jakarta',
+    timeZone: settings.timeZone,
     weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
@@ -175,8 +194,42 @@ export function getLinusOperatingStatus(now = new Date()) {
   const hour = Number(get('hour'));
   const minute = Number(get('minute'));
   const totalMinutes = hour * 60 + minute;
-  const isWeekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
-  const isOpen = isWeekday && totalMinutes >= 420 && totalMinutes < 1020;
+  const weekdayNumber: Record<string, number> = {
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+    Sun: 7,
+  };
+  const openingMinutes =
+    Number(settings.openingTime.slice(0, 2)) * 60 +
+    Number(settings.openingTime.slice(3, 5));
+  const closingMinutes =
+    Number(settings.closingTime.slice(0, 2)) * 60 +
+    Number(settings.closingTime.slice(3, 5));
+  const isOpen =
+    settings.serviceDays.includes(weekdayNumber[weekday]) &&
+    totalMinutes >= openingMinutes &&
+    totalMinutes < closingMinutes;
+  const dayNames = [
+    '',
+    'Senin',
+    'Selasa',
+    'Rabu',
+    'Kamis',
+    'Jumat',
+    'Sabtu',
+    'Minggu',
+  ];
+  const serviceDayLabel =
+    settings.serviceDays.length === 5 &&
+    settings.serviceDays.every((day, index) => day === index + 1)
+      ? 'Senin sampai Jumat'
+      : settings.serviceDays.map((day) => dayNames[day]).join(', ');
+  const formatTime = (time: string) => time.replace(':', '.');
+  const hoursLabel = `${formatTime(settings.openingTime)} sampai ${formatTime(settings.closingTime)} WIB`;
 
   return {
     isOpen,
@@ -184,8 +237,8 @@ export function getLinusOperatingStatus(now = new Date()) {
       ? 'Jam operasional'
       : 'Di luar jam operasional',
     detail: isOpen
-      ? 'Senin–Jumat, 07.00–17.00 WIB'
-      : 'Linus beroperasi Senin–Jumat, 07.00–17.00 WIB',
+      ? `${serviceDayLabel}, ${hoursLabel}`
+      : `Linus beroperasi ${serviceDayLabel}, ${hoursLabel}`,
   };
 }
 

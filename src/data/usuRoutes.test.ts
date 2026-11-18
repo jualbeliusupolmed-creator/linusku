@@ -81,4 +81,20 @@ describe('USU route utilities', () => {
     const sunday = new Date('2026-11-22T03:00:00.000Z');
     expect(getLinusOperatingStatus(sunday).isOpen).toBe(false);
   });
+
+  it('uses admin-configured service days and opening hours', () => {
+    const settings = {
+      serviceDays: [1],
+      openingTime: '08:00',
+      closingTime: '09:00',
+      timeZone: 'Asia/Jakarta',
+    };
+
+    expect(
+      getLinusOperatingStatus(new Date('2026-11-23T00:30:00.000Z'), settings).isOpen
+    ).toBe(false);
+    expect(
+      getLinusOperatingStatus(new Date('2026-11-23T01:30:00.000Z'), settings).isOpen
+    ).toBe(true);
+  });
 });

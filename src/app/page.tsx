@@ -6,17 +6,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bus,
   Clock,
+  ExternalLink,
   MapPin,
   Navigation,
   Radio,
   RefreshCw,
   Search,
+  ShoppingBag,
   Star,
   Users,
 } from 'lucide-react';
 import {
   BusPosition,
   BusStop,
+  DEFAULT_OPERATING_SETTINGS,
+  LinusOperatingSettings,
   USU_STOPS,
   estimateEtaMinutes,
   findNearestStop,
@@ -57,6 +61,12 @@ const occupancyBadge: Record<
 
 export default function HomePage() {
   const [buses, setBuses] = useState<BusPosition[]>([]);
+  const [stops, setStops] = useState<BusStop[]>(USU_STOPS);
+  const [fleet, setFleet] = useState<Array<{ id: string; name: string }>>([
+    { id: 'LINUS-01', name: 'LINUS-01' },
+    { id: 'LINUS-02', name: 'LINUS-02' },
+    { id: 'LINUS-03', name: 'LINUS-03' },
+  ]);
 
   const [selectedStopId, setSelectedStopId] = useState<string>(USU_STOPS[0].id);
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
@@ -75,29 +85,129 @@ export default function HomePage() {
   const [crowdOccupancy, setCrowdOccupancy] =
     useState<BusPosition['occupancy']>('medium');
   const [crowdStatus, setCrowdStatus] = useState('');
+  const [stopsError, setStopsError] = useState('');
+  const [settingsError, setSettingsError] = useState('');
+  const [fleetError, setFleetError] = useState('');
+  const [serviceSettings, setServiceSettings] =
+    useState<LinusOperatingSettings>(DEFAULT_OPERATING_SETTINGS);
   const [operatingStatus, setOperatingStatus] = useState(
     getLinusOperatingStatus()
   );
 
-  // Muat geometri jalan aspal kampus USU sekali saat halaman dibuka
+  // Muat pengaturan yang diubah admin beserta geometri rute terbaru.
   useEffect(() => {
-    fetch('/api/route')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { points?: [number, number][] } | null) => {
-        if (data?.points && data.points.length >= 2) {
-          setRoutePolyline(data.points);
+    let active = true;
+
+    const loadStops = async () => {
+      try {
+        const response = await fetch('/api/stops');
+        const payload = (await response.json()) as {
+          stops?: BusStop[];
+          error?: string;
+        };
+        if (!response.ok || !payload.stops?.length) {
+          throw new Error(payload.error ?? 'Daftar halte kosong.');
         }
-      })
-      .catch(() => {
-        // Fallback otomatis ke ROUTE_POLYLINE bawaan
-      });
+        if (!active) return;
+        setStops(payload.stops);
+        setSelectedStopId((current) =>
+          payload.stops?.some((stop) => stop.id === current)
+            ? current
+            : payload.stops?.[0].id ?? USU_STOPS[0].id
+        );
+        setStopsError('');
+      } catch {
+        if (active) {
+          setStopsError('Daftar halte online tidak dapat dimuat. Coba segarkan halaman.');
+        }
+      }
+    };
+
+    const loadFleet = async () => {
+      try {
+        const response = await fetch('/api/fleet');
+        const payload = (await response.json()) as {
+          buses?: Array<{ id: string; name: string }>;
+          error?: string;
+        };
+        if (!response.ok || !Array.isArray(payload.buses)) {
+          throw new Error(payload.error ?? 'Daftar armada tidak tersedia.');
+        }
+        if (active) {
+          setFleet(payload.buses);
+          setCrowdBusId((current) =>
+            payload.buses?.some((bus) => bus.id === current)
+              ? current
+              : payload.buses?.[0].id ?? ''
+          );
+          setFleetError('');
+        }
+      } catch (error) {
+        if (active) {
+          setFleet([]);
+          setCrowdBusId('');
+          setFleetError(
+            error instanceof Error
+              ? error.message
+              : 'Daftar armada belum dapat dimuat.'
+          );
+        }
+      }
+    };
+
+    const loadSettings = async () => {
+      try {
+        const response = await fetch('/api/settings');
+        const payload = (await response.json()) as {
+          settings?: LinusOperatingSettings;
+          error?: string;
+        };
+        if (!response.ok || !payload.settings) {
+          throw new Error(payload.error ?? 'Jadwal belum tersedia.');
+        }
+        if (active) {
+          setServiceSettings(payload.settings);
+          setSettingsError('');
+        }
+      } catch {
+        if (active) {
+          setSettingsError('Jadwal online tidak dapat dimuat. Jadwal bawaan ditampilkan.');
+        }
+      }
+    };
+
+    const loadRoute = async () => {
+      try {
+        const response = await fetch('/api/route');
+        const payload = (await response.json()) as {
+          points?: [number, number][];
+          error?: string;
+        };
+        if (!response.ok || !payload.points || payload.points.length < 2) {
+          throw new Error(payload.error ?? 'Geometri rute belum tersedia.');
+        }
+        if (active) setRoutePolyline(payload.points);
+      } catch {
+        if (active) {
+          setStatusMessage('Geometri jalan rute belum dapat dimuat. Halte tetap ditampilkan.');
+        }
+      }
+    };
+
+    void loadStops();
+    void loadFleet();
+    void loadSettings();
+    void loadRoute();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Muat halte terakhir & daftar halte favorit dari localStorage
   useEffect(() => {
     try {
       const savedStop = window.localStorage.getItem(STORAGE_SELECTED_STOP_KEY);
-      if (savedStop && USU_STOPS.some((s) => s.id === savedStop)) {
+      if (savedStop && stops.some((s) => s.id === savedStop)) {
         setSelectedStopId(savedStop);
       }
       const savedFavs = window.localStorage.getItem(STORAGE_FAVORITE_STOPS_KEY);
@@ -110,7 +220,7 @@ export default function HomePage() {
     } catch {
       // Ignore storage error in private mode
     }
-  }, []);
+  }, [stops]);
 
   const handleSelectStop = (stopId: string) => {
     setSelectedStopId(stopId);
@@ -201,11 +311,11 @@ export default function HomePage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setOperatingStatus(getLinusOperatingStatus());
+      setOperatingStatus(getLinusOperatingStatus(new Date(), serviceSettings));
     }, 60000);
-    setOperatingStatus(getLinusOperatingStatus());
+    setOperatingStatus(getLinusOperatingStatus(new Date(), serviceSettings));
     return () => clearInterval(timer);
-  }, []);
+  }, [serviceSettings]);
 
   const findNearestFromLocation = () => {
     if (!navigator.geolocation) {
@@ -221,7 +331,7 @@ export default function HomePage() {
           setLocationStatus('Lokasimu berada di luar Kampus USU.');
           return;
         }
-        const nearest = findNearestStop(lat, lng);
+        const nearest = findNearestStop(lat, lng, stops);
         handleSelectStop(nearest.stop.id);
         setNearestInfo({
           stopName: nearest.stop.name,
@@ -239,6 +349,10 @@ export default function HomePage() {
   };
 
   const shareCrowdLocation = () => {
+    if (!crowdBusId) {
+      setCrowdStatus('Belum ada armada aktif untuk laporan.');
+      return;
+    }
     if (!navigator.geolocation) {
       setCrowdStatus('Browser tidak mendukung lokasi.');
       return;
@@ -276,8 +390,8 @@ export default function HomePage() {
   };
 
   const selectedStop: BusStop = useMemo(() => {
-    return USU_STOPS.find((s) => s.id === selectedStopId) ?? USU_STOPS[0];
-  }, [selectedStopId]);
+    return stops.find((s) => s.id === selectedStopId) ?? stops[0] ?? USU_STOPS[0];
+  }, [selectedStopId, stops]);
 
   const activePolyline =
     routePolyline.length >= 2 ? routePolyline : undefined;
@@ -294,12 +408,12 @@ export default function HomePage() {
   const filteredStops = useMemo(() => {
     const q = stopQuery.trim().toLowerCase();
     const matching = q
-      ? USU_STOPS.filter(
+      ? stops.filter(
           (s) =>
             s.name.toLowerCase().includes(q) ||
             s.area.toLowerCase().includes(q)
         )
-      : USU_STOPS;
+      : stops;
 
     return [...matching].sort((a, b) => {
       const aFav = favoriteStopIds.includes(a.id) ? 0 : 1;
@@ -307,7 +421,8 @@ export default function HomePage() {
       if (aFav !== bFav) return aFav - bFav;
       return a.sequenceOrder - b.sequenceOrder;
     });
-  }, [stopQuery, favoriteStopIds]);
+  }, [stopQuery, favoriteStopIds, stops]);
+  const operationsError = settingsError || stopsError || fleetError;
 
   return (
     <div className="app-shell">
@@ -339,29 +454,50 @@ export default function HomePage() {
               <Radio size={16} />
               <span>{feedMode === 'live' ? 'Live Kampus' : feedMode === 'community' ? 'Laporan komunitas' : feedMode === 'simulation' ? 'Mode Simulasi' : 'Data tidak tersedia'}</span>
             </span>
-            <Link href="/driver" className="driver-link active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-              <Navigation size={16} />
-              <span>Mode Driver</span>
-            </Link>
           </div>
         </div>
       </header>
 
-      {!operatingStatus.isOpen && (
-        <div className="operating-banner" role="status">
-          <Clock size={15} />
+      <div className="operations-strip">
+        <div
+          className={`operating-banner ${
+            operationsError || !operatingStatus.isOpen ? 'is-warning' : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <Clock size={16} aria-hidden="true" />
           <span>
-            <strong>{operatingStatus.label}</strong>
-            <small>{operatingStatus.detail}</small>
+            <strong>
+              {operationsError ? 'Jadwal bawaan' : operatingStatus.label}
+            </strong>
+            <small>
+              {operationsError ? 'Online belum tersedia.' : operatingStatus.detail}
+            </small>
           </span>
         </div>
-      )}
+        <a
+          className="marketplace-button"
+          href="https://www.kampuskita.my.id/jual-beli"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Buka marketplace KampusKita"
+        >
+          <ShoppingBag size={18} aria-hidden="true" />
+          <span>
+            <strong>Marketplace</strong>
+            <small>Jual-beli KampusKita</small>
+          </span>
+          <ExternalLink size={15} aria-hidden="true" />
+        </a>
+      </div>
 
       <main className="app-main">
         <section className="map-column" id="peta" aria-label="Peta rute Linus">
           <div className="map-frame">
             <LinusMap
               buses={buses}
+              stops={stops}
               routePolyline={activePolyline}
               selectedStopId={selectedStop.id}
               onSelectStop={(stop) => handleSelectStop(stop.id)}
@@ -376,7 +512,11 @@ export default function HomePage() {
                 <h2 id="arrival-title">{selectedStop.name}</h2>
                 <p className="stop-area">{selectedStop.area}</p>
               </div>
-              <span className="route-chip"><Clock size={14} />07.00 sampai 17.00</span>
+              <span className="route-chip">
+                <Clock size={14} aria-hidden="true" />
+                {serviceSettings.openingTime.replace(':', '.')}-
+                {serviceSettings.closingTime.replace(':', '.')}
+              </span>
             </div>
 
             {stopEtas.length === 0 ? (
@@ -429,11 +569,13 @@ export default function HomePage() {
                 Armadaku
                 <select
                   value={crowdBusId}
+                  disabled={fleet.length === 0}
                   onChange={(event) => setCrowdBusId(event.target.value)}
                   className="crowd-select"
                 >
-                  {['LINUS-01', 'LINUS-02', 'LINUS-03'].map((id) => (
-                    <option value={id} key={id}>{id}</option>
+                  {fleet.length === 0 && <option value="">Tidak ada armada aktif</option>}
+                  {fleet.map((bus) => (
+                    <option value={bus.id} key={bus.id}>{bus.name}</option>
                   ))}
                 </select>
               </label>
@@ -455,7 +597,7 @@ export default function HomePage() {
                 type="button"
                 className="crowd-button"
                 onClick={shareCrowdLocation}
-                disabled={crowdStatus.startsWith('Membaca')}
+                disabled={crowdStatus.startsWith('Membaca') || fleet.length === 0}
               >
                 <MapPin size={16} />
                 Bagikan lokasi
@@ -531,7 +673,7 @@ export default function HomePage() {
         <div className="bottom-nav-inner">
           <a href="/" className="is-active active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><Bus size={18} />Linusku</a>
           <a href="#peta" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><MapPin size={18} />Peta</a>
-          <Link href="/driver" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><Navigation size={18} />Driver</Link>
+          <a href="#halte" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><MapPin size={18} />Halte</a>
         </div>
       </nav>
     </div>

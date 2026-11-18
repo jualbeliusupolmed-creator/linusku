@@ -52,6 +52,20 @@ create table if not exists public.crowd_reports (
   created_at timestamptz not null default now()
 );
 
+-- Pengaturan operasional tunggal, dapat dibaca publik dan hanya diubah server admin.
+create table if not exists public.linusku_settings (
+  key text primary key check (key = 'service'),
+  service_days integer[] not null default array[1, 2, 3, 4, 5],
+  opening_time time not null default '07:00',
+  closing_time time not null default '17:00',
+  updated_at timestamptz not null default now(),
+  check (opening_time < closing_time)
+);
+
+insert into public.linusku_settings (key)
+values ('service')
+on conflict (key) do nothing;
+
 create index if not exists idx_crowd_reports_created_at
   on public.crowd_reports (created_at desc);
 create index if not exists idx_crowd_reports_bus_id
@@ -72,22 +86,28 @@ alter table public.buses enable row level security;
 alter table public.stops enable row level security;
 alter table public.bus_positions enable row level security;
 alter table public.crowd_reports enable row level security;
+alter table public.linusku_settings enable row level security;
 
 -- Kebijakan Baca Publik (diakses oleh endpoint /api/positions dengan cache 3 detik)
 drop policy if exists "Public read buses" on public.buses;
 drop policy if exists "Public read stops" on public.stops;
 drop policy if exists "Public read bus_positions" on public.bus_positions;
 drop policy if exists "Public read crowd_reports" on public.crowd_reports;
+drop policy if exists "Public read linusku_settings" on public.linusku_settings;
 
 create policy "Public read buses" on public.buses for select using (true);
 create policy "Public read stops" on public.stops for select using (true);
 create policy "Public read bus_positions" on public.bus_positions for select using (true);
+create policy "Public read linusku_settings" on public.linusku_settings for select using (true);
 -- Hindari akses langsung ke laporan mahasiswa. Semua laporan melewati /api/crowd,
 -- yang memvalidasi lokasi serta menggunakan service role hanya di server.
 revoke all on table public.buses, public.stops, public.bus_positions, public.crowd_reports
   from anon, authenticated;
 grant select on table public.buses, public.stops, public.bus_positions to anon, authenticated;
 grant insert, update on table public.bus_positions to authenticated;
+revoke all on table public.linusku_settings from anon, authenticated;
+grant select on table public.linusku_settings to anon, authenticated;
+grant all on table public.linusku_settings to service_role;
 
 -- Kebijakan Tulis Ketat (hanya akun driver yang ditugaskan ke bus aktif)
 drop policy if exists "MVP upsert bus_positions" on public.bus_positions;
@@ -230,3 +250,52 @@ on conflict (id) do update set
   lat = excluded.lat,
   lng = excluded.lng,
   sequence_order = excluded.sequence_order;
+
+-- Menata ulang urutan halte secara atomik tanpa benturan constraint UNIQUE.
+create or replace function public.admin_reorder_stops(p_stop_ids text[])
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  stop_count bigint;
+  matched_count bigint;
+  minimum_order bigint;
+  maximum_order bigint;
+  shift_by bigint;
+begin
+  select count(*), coalesce(min(sequence_order), 0), coalesce(max(sequence_order), 0)
+  into stop_count, minimum_order, maximum_order
+  from public.stops;
+
+  if cardinality(p_stop_ids) is distinct from stop_count then
+    raise exception 'Daftar halte harus memuat semua halte tepat satu kali';
+  end if;
+
+  select count(distinct requested.id)
+  into matched_count
+  from unnest(p_stop_ids) as requested(id)
+  join public.stops as stop on stop.id = requested.id;
+
+  if matched_count is distinct from stop_count then
+    raise exception 'Daftar halte harus memuat semua halte tepat satu kali';
+  end if;
+
+  if stop_count = 0 then
+    return;
+  end if;
+
+  shift_by := maximum_order - minimum_order + 1;
+  update public.stops
+  set sequence_order = (sequence_order::bigint + shift_by)::integer;
+
+  update public.stops as stop
+  set sequence_order = requested.ordinality::integer
+  from unnest(p_stop_ids) with ordinality as requested(id, ordinality)
+  where stop.id = requested.id;
+end;
+$$;
+
+revoke all on function public.admin_reorder_stops(text[]) from public, anon, authenticated;
+grant execute on function public.admin_reorder_stops(text[]) to service_role;
