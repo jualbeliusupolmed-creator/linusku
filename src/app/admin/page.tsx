@@ -590,11 +590,23 @@ export default function AdminPage() {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: sessionData, error }) => {
-      if (error) setAuthError(`Sesi login tidak dapat dimuat: ${error.message}`);
-      setSession(sessionData.session);
+    const fallbackTimer = setTimeout(() => {
       setAuthLoading(false);
-    });
+    }, 3500);
+
+    supabase.auth
+      .getSession()
+      .then(({ data: sessionData, error }) => {
+        clearTimeout(fallbackTimer);
+        if (error) setAuthError(`Sesi login tidak dapat dimuat: ${error.message}`);
+        setSession(sessionData?.session ?? null);
+        setAuthLoading(false);
+      })
+      .catch((err) => {
+        clearTimeout(fallbackTimer);
+        setAuthError(err instanceof Error ? err.message : 'Gagal memeriksa sesi.');
+        setAuthLoading(false);
+      });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
@@ -602,7 +614,10 @@ export default function AdminPage() {
         setAuthError('');
       }
     );
-    return () => authListener.subscription.unsubscribe();
+    return () => {
+      clearTimeout(fallbackTimer);
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

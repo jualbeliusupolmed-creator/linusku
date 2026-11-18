@@ -15,8 +15,8 @@ html {
 
 html,
 body {
-  height: 100%;
-  overflow-x: clip;
+  min-height: 100%;
+  overflow-x: hidden;
 }
 
 #peta,
@@ -1187,8 +1187,8 @@ body {
     display: none;
   }
 
-  html,
-  body {
+  html:has(.app-shell),
+  body:has(.app-shell) {
     height: 100%;
     overflow: hidden;
   }
