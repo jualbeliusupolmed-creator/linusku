@@ -26,7 +26,7 @@
 
 ## 3. Panel Admin dan Otorisasi
 
-- Admin masuk di `/admin` melalui email/password atau Google OAuth. Email terverifikasi harus terdaftar pada `LINUSKU_ADMIN_EMAILS`.
+- Admin masuk di `/admin` melalui email/password atau Google OAuth. Hanya `kampuskitaapp@gmail.com` dan `jualbeliusupolmed@gmail.com` yang diizinkan.
 - Setiap endpoint `/api/admin/*` memverifikasi access token dan allowlist di server. Kunci Supabase server hanya digunakan di lingkungan server.
 - Panel mengelola armada, akun dan penugasan driver, status kepadatan pilihan driver, halte dan urutannya, laporan crowd, serta hari dan jam layanan.
 - Pengaturan layanan disimpan pada `linusku_settings`. Perubahan halte dan urutannya digunakan oleh endpoint rute publik dan kalkulasi ETA.

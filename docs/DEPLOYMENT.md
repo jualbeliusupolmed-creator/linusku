@@ -26,10 +26,9 @@ Tambahkan variabel berikut untuk Production, Preview, dan Development:
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 SUPABASE_SECRET_KEY
-LINUSKU_ADMIN_EMAILS
 ```
 
-Isi `LINUSKU_ADMIN_EMAILS` dengan satu atau lebih email akun Supabase Auth yang boleh mengelola `/admin`, dipisahkan koma. Jika kosong, server memakai `kampuskitaapp@gmail.com` sebagai superadmin bawaan. Email admin harus sudah diverifikasi. Jangan menaruh email admin di variabel `NEXT_PUBLIC_*`.
+Panel `/admin` hanya mengizinkan `kampuskitaapp@gmail.com` dan `jualbeliusupolmed@gmail.com`; kedua email harus sudah diverifikasi di Supabase Auth. Allowlist ditetapkan di server dan tidak dapat diganti oleh environment variable.
 
 Nilai `SUPABASE_SECRET_KEY` hanya berada di Vercel dan server lokal. API menggunakannya di server untuk laporan komunitas serta operasi admin. Jangan gunakan awalan `NEXT_PUBLIC_`, jangan masukkan nilainya ke Git, dan jangan kirim ke browser. `SUPABASE_SERVICE_ROLE_KEY` tetap didukung untuk proyek lama.
 
@@ -42,14 +41,14 @@ Nilai `SUPABASE_SECRET_KEY` hanya berada di Vercel dan server lokal. API menggun
    - `https://<domain>/driver`
    - URL lokal `http://localhost:3000/admin` dan `http://localhost:3000/driver` bila dipakai.
    Jika LINUSKU dipasang di subpath, sertakan subpath itu pada kedua URL. Supabase akan kembali ke Site URL bila URL redirect tidak masuk allowlist.
-4. Akun admin Google harus memakai email yang tercantum di `LINUSKU_ADMIN_EMAILS`. Driver dapat masuk dengan Google atau email/password.
+4. Akun admin Google harus memakai salah satu dari dua email yang diizinkan. Driver dapat masuk dengan Google atau email/password.
 
 Pendaftaran driver mandiri bersifat opsional melalui `/driver`. Driver dapat masuk dengan email/password atau Google, memilih "Ingat saya" untuk mempertahankan sesi lintas tab/browser, dan mengubah nama, password baru, serta status kepadatan dari profilnya. Jika "Ingat saya" dimatikan, sesi hanya disimpan pada tab saat ini. Akun baru belum memiliki hak mengirim GPS sampai admin menugaskan akun itu ke armada aktif di `/admin`; penugasan bus tetap hanya dapat diubah admin. Admin dapat mengatur status kepadatan pilihan driver dari panel. Password akun tidak dapat dibaca kembali; admin hanya dapat menetapkan password baru.
 
 ## 3. Gunakan panel admin
 
 1. Pastikan migrasi terbaru dari `supabase/schema.sql` telah diterapkan, termasuk tabel `linusku_settings` dan fungsi `admin_reorder_stops`.
-2. Masuk ke `/admin` memakai akun yang terdaftar di `LINUSKU_ADMIN_EMAILS`.
+2. Masuk ke `/admin` memakai `kampuskitaapp@gmail.com` atau `jualbeliusupolmed@gmail.com`.
 3. Tambahkan atau pilih armada, buat akun driver bila perlu, lalu tetapkan satu driver ke satu bus.
 4. Atur hari dan jam layanan serta koordinat dan urutan halte. Perubahan halte dan pengaturan dibaca oleh peta publik dan kalkulasi ETA.
 5. Panel menampilkan posisi GPS yang diperbarui setiap 10 detik dan laporan kepadatan yang masuk dalam 24 jam terakhir.

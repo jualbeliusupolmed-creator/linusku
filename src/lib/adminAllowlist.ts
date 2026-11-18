@@ -1,14 +1,10 @@
-const DEFAULT_ADMIN_EMAILS = ['kampuskitaapp@gmail.com'];
+const ADMIN_EMAILS = [
+  'kampuskitaapp@gmail.com',
+  'jualbeliusupolmed@gmail.com',
+];
 
 export function getAdminAllowlist(): string[] {
-  const configuredEmails = (process.env.LINUSKU_ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-
-  return configuredEmails.length > 0
-    ? configuredEmails
-    : DEFAULT_ADMIN_EMAILS;
+  return [...ADMIN_EMAILS];
 }
 
 export function isAdminEmailAllowed(
