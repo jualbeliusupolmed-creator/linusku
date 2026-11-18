@@ -1,18 +1,35 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Dispatch,
+  FormEvent,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Bus,
+  CheckCircle2,
   Clock3,
+  Database,
+  Download,
   FileText,
   LogOut,
   MapPin,
+  Pause,
+  Play,
   RefreshCw,
+  RotateCcw,
   Settings2,
   ShieldCheck,
+  Upload,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
@@ -21,11 +38,22 @@ import {
   DEFAULT_FEATURE_FLAGS,
   DEFAULT_GEOFENCE_SETTINGS,
   DEFAULT_MAP_SETTINGS,
+  DEFAULT_SCHEDULE_SETTINGS,
+  type ScheduleSettings,
 } from '@/data/usuRoutes';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 import './admin.css';
 
-type AdminTab = 'overview' | 'fleet' | 'drivers' | 'stops' | 'reports' | 'operations' | 'audit' | 'history';
+type AdminTab =
+  | 'overview'
+  | 'fleet'
+  | 'drivers'
+  | 'requests'
+  | 'stops'
+  | 'reports'
+  | 'operations'
+  | 'audit'
+  | 'history';
 type Occupancy = 'low' | 'medium' | 'full';
 
 interface AdminBus {
@@ -87,6 +115,7 @@ interface AdminSettings {
     closingTime: string;
     timeZone: string;
   };
+  schedule?: ScheduleSettings;
   eta?: {
     minSpeedKmh: number;
     maxSpeedKmh: number;
@@ -166,6 +195,67 @@ interface PositionHistoryResponse {
   offset: number;
 }
 
+interface AdminHealthCheck {
+  key: string;
+  ok: boolean;
+  count: number;
+  error: string | null;
+}
+
+interface AdminHealth {
+  ok: boolean;
+  checks: AdminHealthCheck[];
+  fleet: {
+    active: number;
+    unassigned: number;
+    unassignedBusIds: string[];
+    stale: number;
+    staleBusIds: string[];
+  };
+  generatedAt: string;
+}
+
+interface DriverAccessRequest {
+  id: string;
+  user_id: string;
+  full_name: string;
+  phone: string;
+  notes: string;
+  requested_bus_id: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  email: string;
+}
+
+interface BulkResponse {
+  ok: boolean;
+  updated: number;
+  failed: number;
+  errors: Array<{ id: string; error: string }>;
+}
+
+interface ImportResult {
+  index: number;
+  id?: string;
+  status: 'created' | 'updated' | 'failed';
+  errors: string[];
+}
+
+interface ImportResponse {
+  ok: boolean;
+  resource: string;
+  created: number;
+  updated: number;
+  failed: number;
+  results: ImportResult[];
+}
+
+type TransferSource = 'armada' | 'halte' | 'akun';
+type AdminRequester = <T>(url: string, init?: RequestInit) => Promise<T>;
+
 interface BusForm {
   id: string;
   name: string;
@@ -196,12 +286,15 @@ const TABS: Array<{ id: AdminTab; label: string; icon: typeof Activity }> = [
   { id: 'overview', label: 'Ikhtisar', icon: Activity },
   { id: 'fleet', label: 'Armada', icon: Bus },
   { id: 'drivers', label: 'Akun', icon: Users },
+  { id: 'requests', label: 'Permintaan driver', icon: UserCheck },
   { id: 'stops', label: 'Halte', icon: MapPin },
   { id: 'reports', label: 'Laporan crowd', icon: FileText },
   { id: 'operations', label: 'Jam dan rute', icon: Clock3 },
   { id: 'audit', label: 'Audit Log', icon: FileText },
   { id: 'history', label: 'Riwayat GPS', icon: Clock3 },
 ];
+
+const PAGE_SIZE = 10;
 
 const DAYS = [
   { id: 1, label: 'Senin' },
@@ -254,6 +347,51 @@ function formatDate(value: string | null): string {
   }).format(new Date(value));
 }
 
+function formatDateTime(value: string | null): string {
+  if (!value) return 'Belum tersedia';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Waktu tidak valid';
+  return new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Jakarta',
+  }).format(date);
+}
+
+function formatJson(value: unknown): string {
+  if (value === null || value === undefined) return 'Tidak ada';
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function healthCheckLabel(key: string): string {
+  const labels: Record<string, string> = {
+    buses: 'Data armada',
+    stops: 'Data halte',
+    positions: 'Posisi GPS',
+    settings: 'Pengaturan',
+    driver_requests: 'Permintaan driver',
+    driver_sessions: 'Sesi driver',
+    realtime: 'Supabase Realtime',
+    storage: 'Supabase Storage',
+  };
+  return labels[key] ?? key;
+}
+
+function settingsSourceLabel(source: string | undefined): string {
+  if (source === 'database_v2') return 'Database v2';
+  if (source === 'database_legacy') return 'Database lama';
+  if (source === 'default') return 'Nilai bawaan sistem';
+  return 'Tidak diketahui';
+}
+
 function formatOccupancy(value: Occupancy): string {
   return value === 'low' ? 'Lega' : value === 'medium' ? 'Sedang' : 'Penuh';
 }
@@ -276,7 +414,7 @@ export default function AdminPage() {
   const [dataError, setDataError] = useState('');
   const [positionError, setPositionError] = useState('');
   const [actionMessage, setActionMessage] = useState<{
-    kind: 'success' | 'error';
+    kind: 'success' | 'warning' | 'error';
     text: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -299,10 +437,35 @@ export default function AdminPage() {
   const [serviceDays, setServiceDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [openingTime, setOpeningTime] = useState('07:00');
   const [closingTime, setClosingTime] = useState('17:00');
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>(
+    DEFAULT_SCHEDULE_SETTINGS
+  );
   const [etaSettings, setEtaSettings] = useState(DEFAULT_ETA_SETTINGS);
   const [mapSettings, setMapSettings] = useState(DEFAULT_MAP_SETTINGS);
   const [featureFlags, setFeatureFlags] = useState(DEFAULT_FEATURE_FLAGS);
   const [geofenceSettings, setGeofenceSettings] = useState(DEFAULT_GEOFENCE_SETTINGS);
+  const [health, setHealth] = useState<AdminHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError] = useState('');
+  const [driverRequests, setDriverRequests] = useState<DriverAccessRequest[]>([]);
+  const [driverRequestsLoading, setDriverRequestsLoading] = useState(false);
+  const [driverRequestsError, setDriverRequestsError] = useState('');
+  const [driverRequestBuses, setDriverRequestBuses] = useState<Record<string, string>>({});
+  const [fleetSearch, setFleetSearch] = useState('');
+  const [fleetStatus, setFleetStatus] = useState('all');
+  const [fleetSort, setFleetSort] = useState('id-asc');
+  const [fleetPage, setFleetPage] = useState(1);
+  const [selectedFleetIds, setSelectedFleetIds] = useState<Set<string>>(new Set());
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountStatus, setAccountStatus] = useState('all');
+  const [accountSort, setAccountSort] = useState('name-asc');
+  const [accountPage, setAccountPage] = useState(1);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
+  const [reportSearch, setReportSearch] = useState('');
+  const [reportOccupancy, setReportOccupancy] = useState('all');
+  const [reportSort, setReportSort] = useState('newest');
+  const [reportPage, setReportPage] = useState(1);
+  const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
 
   // Audit log state
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -361,20 +524,61 @@ export default function AdminPage() {
     []
   );
 
-  const loadSummary = useCallback(async () => {
-    if (!session) return;
+  const loadSummary = useCallback(async (): Promise<boolean> => {
+    if (!session) return false;
     setDataLoading(true);
     setDataError('');
     try {
       const payload = await requestAdmin<AdminData>('/api/admin');
       setData(payload);
       setSummaryLoaded(true);
+      return true;
     } catch (error) {
       setDataError(messageFromError(error));
-      setData(null);
-      setSummaryLoaded(false);
+      return false;
     } finally {
       setDataLoading(false);
+    }
+  }, [requestAdmin, session]);
+
+  const loadHealth = useCallback(async (): Promise<boolean> => {
+    if (!session) return false;
+    setHealthLoading(true);
+    setHealthError('');
+    try {
+      const payload = await requestAdmin<AdminHealth>('/api/admin/health');
+      setHealth(payload);
+      return true;
+    } catch (error) {
+      setHealthError(messageFromError(error));
+      return false;
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [requestAdmin, session]);
+
+  const loadDriverRequests = useCallback(async (): Promise<boolean> => {
+    if (!session) return false;
+    setDriverRequestsLoading(true);
+    setDriverRequestsError('');
+    try {
+      const payload = await requestAdmin<{ requests: DriverAccessRequest[] }>(
+        '/api/admin/driver-requests'
+      );
+      setDriverRequests(payload.requests);
+      setDriverRequestBuses((current) => {
+        const next = { ...current };
+        for (const item of payload.requests) {
+          if (!next[item.id] && item.requested_bus_id) next[item.id] = item.requested_bus_id;
+        }
+        return next;
+      });
+      return true;
+    } catch (error) {
+      setDriverRequestsError(messageFromError(error));
+      return false;
+    } finally {
+      setDriverRequestsLoading(false);
     }
   }, [requestAdmin, session]);
 
@@ -423,12 +627,19 @@ export default function AdminPage() {
   }, [loadSummary, session]);
 
   useEffect(() => {
+    if (!summaryLoaded) return;
+    void loadHealth();
+    void loadDriverRequests();
+  }, [summaryLoaded, loadHealth, loadDriverRequests]);
+
+  useEffect(() => {
     if (!data?.settings) return;
     if (data.settings.service) {
       setServiceDays(data.settings.service.serviceDays);
       setOpeningTime(data.settings.service.openingTime);
       setClosingTime(data.settings.service.closingTime);
     }
+    setScheduleSettings(data.settings.schedule ?? DEFAULT_SCHEDULE_SETTINGS);
     setEtaSettings(data.settings.eta ?? DEFAULT_ETA_SETTINGS);
     setMapSettings(data.settings.map ?? DEFAULT_MAP_SETTINGS);
     setFeatureFlags(data.settings.features ?? DEFAULT_FEATURE_FLAGS);
@@ -539,6 +750,126 @@ export default function AdminPage() {
     [data?.positions]
   );
 
+  const staleThresholdSeconds =
+    data?.settings.eta?.staleThresholdSeconds ?? DEFAULT_ETA_SETTINGS.staleThresholdSeconds;
+
+  const dynamicStaleBusIds = useMemo(() => {
+    const stale = new Set<string>();
+    for (const bus of data?.buses ?? []) {
+      if (!bus.is_active) continue;
+      const position = positionsByBus.get(bus.id);
+      if (!position || now - new Date(position.updated_at).getTime() > staleThresholdSeconds * 1000) {
+        stale.add(bus.id);
+      }
+    }
+    return stale;
+  }, [data?.buses, now, positionsByBus, staleThresholdSeconds]);
+
+  const filteredFleet = useMemo(() => {
+    const query = fleetSearch.trim().toLocaleLowerCase('id-ID');
+    const rows = (data?.buses ?? []).filter((bus) => {
+      const matchesQuery =
+        !query ||
+        bus.id.toLocaleLowerCase('id-ID').includes(query) ||
+        bus.name.toLocaleLowerCase('id-ID').includes(query) ||
+        (bus.plate_number ?? '').toLocaleLowerCase('id-ID').includes(query);
+      const matchesStatus =
+        fleetStatus === 'all' ||
+        (fleetStatus === 'active' && bus.is_active) ||
+        (fleetStatus === 'inactive' && !bus.is_active) ||
+        (fleetStatus === 'stale' && dynamicStaleBusIds.has(bus.id)) ||
+        (fleetStatus === 'unassigned' && !bus.driver_id);
+      return matchesQuery && matchesStatus;
+    });
+    return rows.sort((left, right) => {
+      if (fleetSort === 'id-desc') return right.id.localeCompare(left.id, 'id-ID');
+      if (fleetSort === 'name-asc') return left.name.localeCompare(right.name, 'id-ID');
+      if (fleetSort === 'name-desc') return right.name.localeCompare(left.name, 'id-ID');
+      if (fleetSort === 'status-asc') {
+        return Number(left.is_active) - Number(right.is_active) || left.id.localeCompare(right.id, 'id-ID');
+      }
+      return left.id.localeCompare(right.id, 'id-ID');
+    });
+  }, [data?.buses, dynamicStaleBusIds, fleetSearch, fleetSort, fleetStatus]);
+
+  const accountRows = accountList === 'users' ? (data?.users ?? []) : (data?.drivers ?? []);
+  const pendingDriverRequests = driverRequests.filter((item) => item.status === 'pending');
+  const filteredAccounts = useMemo(() => {
+    const query = accountSearch.trim().toLocaleLowerCase('id-ID');
+    const rows = accountRows.filter((user) => {
+      const isActive = !user.bannedUntil || new Date(user.bannedUntil).getTime() <= now;
+      const matchesQuery =
+        !query ||
+        user.fullName.toLocaleLowerCase('id-ID').includes(query) ||
+        user.email.toLocaleLowerCase('id-ID').includes(query) ||
+        (user.assignedBusId ?? '').toLocaleLowerCase('id-ID').includes(query);
+      const matchesStatus =
+        accountStatus === 'all' ||
+        (accountStatus === 'active' && isActive) ||
+        (accountStatus === 'inactive' && !isActive);
+      return matchesQuery && matchesStatus;
+    });
+    return rows.sort((left, right) => {
+      if (accountSort === 'name-desc') {
+        return (right.fullName || right.email).localeCompare(left.fullName || left.email, 'id-ID');
+      }
+      if (accountSort === 'last-login-desc') {
+        return (
+          new Date(right.lastSignInAt ?? 0).getTime() -
+          new Date(left.lastSignInAt ?? 0).getTime()
+        );
+      }
+      if (accountSort === 'status-asc') {
+        const leftActive = !left.bannedUntil || new Date(left.bannedUntil).getTime() <= now;
+        const rightActive = !right.bannedUntil || new Date(right.bannedUntil).getTime() <= now;
+        return Number(leftActive) - Number(rightActive);
+      }
+      return (left.fullName || left.email).localeCompare(right.fullName || right.email, 'id-ID');
+    });
+  }, [accountRows, accountSearch, accountSort, accountStatus, now]);
+
+  const filteredReports = useMemo(() => {
+    const query = reportSearch.trim().toLocaleLowerCase('id-ID');
+    const rows = (data?.reports ?? []).filter((report) => {
+      const matchesQuery =
+        !query ||
+        report.id.toLocaleLowerCase('id-ID').includes(query) ||
+        (report.bus_id ?? '').toLocaleLowerCase('id-ID').includes(query) ||
+        (report.stop_id ?? '').toLocaleLowerCase('id-ID').includes(query);
+      const matchesOccupancy =
+        reportOccupancy === 'all' || report.occupancy === reportOccupancy;
+      return matchesQuery && matchesOccupancy;
+    });
+    return rows.sort((left, right) => {
+      const difference =
+        new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+      return reportSort === 'oldest' ? -difference : difference;
+    });
+  }, [data?.reports, reportOccupancy, reportSearch, reportSort]);
+
+  const fleetPageCount = Math.max(1, Math.ceil(filteredFleet.length / PAGE_SIZE));
+  const currentFleetPage = Math.min(fleetPage, fleetPageCount);
+  const fleetPageRows = filteredFleet.slice(
+    (currentFleetPage - 1) * PAGE_SIZE,
+    currentFleetPage * PAGE_SIZE
+  );
+  const accountPageCount = Math.max(1, Math.ceil(filteredAccounts.length / PAGE_SIZE));
+  const currentAccountPage = Math.min(accountPage, accountPageCount);
+  const accountPageRows = filteredAccounts.slice(
+    (currentAccountPage - 1) * PAGE_SIZE,
+    currentAccountPage * PAGE_SIZE
+  );
+  const replayHistory = useMemo(
+    () => positionHistory.filter((item) => item.bus_id === historyFilters.busId),
+    [historyFilters.busId, positionHistory]
+  );
+  const reportPageCount = Math.max(1, Math.ceil(filteredReports.length / PAGE_SIZE));
+  const currentReportPage = Math.min(reportPage, reportPageCount);
+  const reportPageRows = filteredReports.slice(
+    (currentReportPage - 1) * PAGE_SIZE,
+    currentReportPage * PAGE_SIZE
+  );
+
   const selectTab = (tab: AdminTab) => {
     if (activeTab === tab) return;
     setActiveTab(tab);
@@ -560,15 +891,154 @@ export default function AdminPage() {
         method,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      setActionMessage({ kind: 'success', text: successMessage });
-      await loadSummary();
-      return true;
     } catch (error) {
       setActionMessage({ kind: 'error', text: messageFromError(error) });
       return false;
     } finally {
       setSaving(false);
     }
+
+    const refreshed = await loadSummary();
+    setActionMessage({
+      kind: refreshed ? 'success' : 'warning',
+      text: refreshed
+        ? successMessage
+        : `${successMessage} Perubahan tersimpan, tetapi data layar gagal dimuat ulang.`,
+    });
+    return true;
+  };
+
+  const toggleSelected = (
+    setter: Dispatch<SetStateAction<Set<string>>>,
+    id: string
+  ) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const runBulkAction = async (
+    resource: 'armada' | 'akun' | 'laporan',
+    action: 'activate' | 'deactivate' | 'make_driver' | 'make_user' | 'delete',
+    ids: string[]
+  ) => {
+    if (!ids.length) return;
+    const labels: Record<typeof action, string> = {
+      activate: 'Aktifkan',
+      deactivate: 'Nonaktifkan',
+      make_driver: 'Jadikan driver',
+      make_user: 'Jadikan pengguna',
+      delete: 'Hapus',
+    };
+    if (
+      action === 'deactivate' &&
+      !window.confirm(`Nonaktifkan ${ids.length} akun terpilih? Akun tidak dapat masuk sampai diaktifkan kembali.`)
+    ) {
+      return;
+    }
+    if (
+      action === 'make_user' &&
+      !window.confirm(`Ubah ${ids.length} akun driver menjadi pengguna?`)
+    ) {
+      return;
+    }
+    if (
+      action === 'delete' &&
+      !window.confirm(`Hapus ${ids.length} laporan terpilih? Tindakan ini tidak dapat dibatalkan.`)
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    setActionMessage(null);
+    try {
+      const payload = await requestAdmin<BulkResponse>('/api/admin/bulk', {
+        method: 'PATCH',
+        body: JSON.stringify({ resource, action, ids }),
+      });
+      const refreshed = await loadSummary();
+      const detail = payload.errors
+        .slice(0, 2)
+        .map((item) => `${item.id}: ${item.error}`)
+        .join('; ');
+      setActionMessage({
+        kind: payload.failed > 0 || !refreshed ? 'warning' : 'success',
+        text:
+          payload.failed > 0
+            ? `${payload.updated} berhasil, ${payload.failed} gagal. ${detail}`
+            : refreshed
+              ? `${payload.updated} data berhasil ${labels[action].toLocaleLowerCase('id-ID')}.`
+              : `Operasi tersimpan, tetapi data layar gagal dimuat ulang.`,
+      });
+      if (payload.updated > 0) {
+        if (resource === 'armada') setSelectedFleetIds(new Set());
+        if (resource === 'akun') setSelectedAccountIds(new Set());
+        if (resource === 'laporan') setSelectedReportIds(new Set());
+      }
+    } catch (error) {
+      setActionMessage({ kind: 'error', text: messageFromError(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reviewDriverRequest = async (
+    item: DriverAccessRequest,
+    decision: 'approve' | 'reject'
+  ) => {
+    if (
+      decision === 'reject' &&
+      !window.confirm(`Tolak permintaan driver ${item.full_name || item.email}?`)
+    ) {
+      return;
+    }
+    setSaving(true);
+    setActionMessage(null);
+    try {
+      await requestAdmin('/api/admin/driver-requests', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          requestId: item.id,
+          decision,
+          busId: driverRequestBuses[item.id] ?? '',
+        }),
+      });
+    } catch (error) {
+      setActionMessage({ kind: 'error', text: messageFromError(error) });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+
+    const [summaryRefreshed, requestsRefreshed] = await Promise.all([
+      loadSummary(),
+      loadDriverRequests(),
+    ]);
+    setActionMessage({
+      kind: summaryRefreshed && requestsRefreshed ? 'success' : 'warning',
+      text:
+        summaryRefreshed && requestsRefreshed
+          ? decision === 'approve'
+            ? 'Permintaan driver disetujui.'
+            : 'Permintaan driver ditolak.'
+          : 'Keputusan tersimpan, tetapi data layar gagal dimuat ulang.',
+    });
+    return true;
+  };
+
+  const handleImported = async (result: ImportResponse): Promise<boolean> => {
+    const refreshed = await loadSummary();
+    const summary = `${result.created} dibuat, ${result.updated} diperbarui, ${result.failed} gagal.`;
+    setActionMessage({
+      kind: result.failed > 0 || !refreshed ? 'warning' : 'success',
+      text: !refreshed
+        ? `${summary} Data tersimpan, tetapi data layar gagal dimuat ulang.`
+        : summary,
+    });
+    return refreshed;
   };
 
   const signInWithPassword = async (event: FormEvent<HTMLFormElement>) => {
@@ -688,6 +1158,18 @@ export default function AdminPage() {
   const submitDriverEdit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!editingDriver) return;
+    const currentUser = [...(data?.users ?? []), ...(data?.drivers ?? [])].find(
+      (user) => user.id === editingDriver.id
+    );
+    const currentlyActive =
+      !currentUser?.bannedUntil || new Date(currentUser.bannedUntil).getTime() <= now;
+    if (
+      currentlyActive &&
+      !editingDriver.active &&
+      !window.confirm(`Nonaktifkan akun ${currentUser?.email ?? editingDriver.email}?`)
+    ) {
+      return;
+    }
     const saved = await mutate(
       '/api/admin/users',
       'PATCH',
@@ -794,11 +1276,19 @@ export default function AdminPage() {
       });
       return;
     }
+    if (scheduleSettings.firstDepartureTime >= scheduleSettings.lastDepartureTime) {
+      setActionMessage({
+        kind: 'error',
+        text: 'Keberangkatan pertama harus lebih awal dari keberangkatan terakhir.',
+      });
+      return;
+    }
     await mutate(
       '/api/admin/settings',
       'PUT',
       {
         service: { serviceDays, openingTime, closingTime, timeZone: 'Asia/Jakarta' },
+        schedule: scheduleSettings,
         eta: etaSettings,
         map: mapSettings,
         features: featureFlags,
@@ -1317,7 +1807,7 @@ export default function AdminPage() {
   const freshPositions = data.positions.filter(
     (position) =>
       activeBusIds.has(position.bus_id) &&
-      now - new Date(position.updated_at).getTime() <= 45000
+      now - new Date(position.updated_at).getTime() <= staleThresholdSeconds * 1000
   );
 
   return (
@@ -1382,13 +1872,146 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {(dataError || positionError || actionMessage) && (
-          <div
-            className={`admin-message ${dataError || positionError || actionMessage?.kind === 'error' ? 'admin-message--error' : ''}`}
-            role={dataError || positionError || actionMessage?.kind === 'error' ? 'alert' : 'status'}
-          >
-            {dataError || positionError || actionMessage?.text}
+        {dataError && (
+          <div className="admin-message admin-message--error" role="alert">
+            {dataError}
           </div>
+        )}
+        {positionError && (
+          <div className="admin-message admin-message--error" role="alert">
+            {positionError}
+          </div>
+        )}
+        {actionMessage && (
+          <div
+            className={`admin-message ${
+              actionMessage.kind === 'error'
+                ? 'admin-message--error'
+                : actionMessage.kind === 'warning'
+                  ? 'admin-message--warning'
+                  : ''
+            }`}
+            role={actionMessage.kind === 'error' ? 'alert' : 'status'}
+          >
+            {actionMessage.text}
+          </div>
+        )}
+
+        {activeTab === 'overview' && (
+          <section className="admin-workspace admin-health-panel" aria-labelledby="health-title">
+            <div className="admin-section-heading">
+              <div>
+                <h2 id="health-title">Kesehatan operasional</h2>
+                <p>
+                  Pemeriksaan database, armada aktif, penugasan driver, dan freshness GPS.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="admin-button admin-button--quiet"
+                onClick={() => void loadHealth()}
+                disabled={healthLoading}
+                aria-busy={healthLoading}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                {healthLoading ? 'Memeriksa…' : 'Periksa lagi'}
+              </button>
+            </div>
+            {healthError && (
+              <div className="admin-message admin-message--error" role="alert">
+                {healthError}
+              </div>
+            )}
+            <div className="admin-health-summary">
+              <div className={health?.ok ? 'is-healthy' : 'is-warning'}>
+                {health?.ok ? (
+                  <CheckCircle2 size={20} aria-hidden="true" />
+                ) : (
+                  <AlertTriangle size={20} aria-hidden="true" />
+                )}
+                <span>
+                  <strong>{health?.ok ? 'Layanan utama tersedia' : 'Ada pemeriksaan yang perlu ditinjau'}</strong>
+                  <small>
+                    Diperiksa {health ? formatDateTime(health.generatedAt) : 'belum tersedia'}
+                  </small>
+                </span>
+              </div>
+              <dl className="admin-facts admin-facts--compact">
+                <div>
+                  <dt>Armada aktif</dt>
+                  <dd>{health?.fleet.active ?? data.buses.filter((bus) => bus.is_active).length}</dd>
+                </div>
+                <div>
+                  <dt>Tanpa driver</dt>
+                  <dd>{health?.fleet.unassigned ?? data.buses.filter((bus) => bus.is_active && !bus.driver_id).length}</dd>
+                </div>
+                <div>
+                  <dt>GPS kedaluwarsa</dt>
+                  <dd>{dynamicStaleBusIds.size}</dd>
+                </div>
+                <div>
+                  <dt>Permintaan tertunda</dt>
+                  <dd>{driverRequests.filter((item) => item.status === 'pending').length}</dd>
+                </div>
+              </dl>
+            </div>
+            <div className="admin-health-checks" aria-label="Hasil pemeriksaan layanan">
+              {(health?.checks ?? []).map((check) => (
+                <div key={check.key} className={check.ok ? 'is-healthy' : 'is-warning'}>
+                  <span>{check.ok ? 'Normal' : 'Gagal'}</span>
+                  <strong>{healthCheckLabel(check.key)}</strong>
+                  <small>{check.ok ? `${check.count} data` : check.error}</small>
+                </div>
+              ))}
+              {!health && !healthLoading && (
+                <div className="is-warning">
+                  <span>Belum diperiksa</span>
+                  <strong>Status database</strong>
+                  <small>Tekan Periksa lagi untuk mengambil status terbaru.</small>
+                </div>
+              )}
+            </div>
+            <div className="admin-health-actions">
+              {(health?.fleet.unassigned ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => {
+                    setFleetStatus('unassigned');
+                    setFleetPage(1);
+                    selectTab('fleet');
+                  }}
+                >
+                  Tinjau armada tanpa driver
+                </button>
+              )}
+              {dynamicStaleBusIds.size > 0 && (
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => {
+                    setFleetStatus('stale');
+                    setFleetPage(1);
+                    selectTab('fleet');
+                  }}
+                >
+                  Tinjau GPS kedaluwarsa
+                </button>
+              )}
+              {driverRequests.some((item) => item.status === 'pending') && (
+                <button
+                  type="button"
+                  className="admin-button admin-button--primary"
+                  onClick={() => selectTab('requests')}
+                >
+                  Review permintaan driver
+                </button>
+              )}
+              <p>
+                Ambang GPS kedaluwarsa {staleThresholdSeconds} detik dari pengaturan operasional.
+              </p>
+            </div>
+          </section>
         )}
 
         {activeTab === 'overview' && (
@@ -1416,6 +2039,7 @@ export default function AdminPage() {
               users={data.drivers}
               positionsByBus={positionsByBus}
               now={now}
+              staleThresholdSeconds={staleThresholdSeconds}
               saving={saving}
               compact
               onEdit={openBusForm}
@@ -1441,16 +2065,111 @@ export default function AdminPage() {
               </button>
             </div>
             {busEditorOpen && renderBusForm()}
+            <div className="admin-table-toolbar" aria-label="Filter dan urutan armada">
+              <label className="admin-field">
+                Cari armada
+                <input
+                  type="search"
+                  value={fleetSearch}
+                  placeholder="ID, nama, atau nomor kendaraan"
+                  onChange={(event) => {
+                    setFleetSearch(event.target.value);
+                    setFleetPage(1);
+                  }}
+                />
+              </label>
+              <label className="admin-field">
+                Status
+                <select
+                  value={fleetStatus}
+                  onChange={(event) => {
+                    setFleetStatus(event.target.value);
+                    setFleetPage(1);
+                  }}
+                >
+                  <option value="all">Semua status</option>
+                  <option value="active">Aktif</option>
+                  <option value="inactive">Nonaktif</option>
+                  <option value="stale">GPS kedaluwarsa</option>
+                  <option value="unassigned">Belum ada driver</option>
+                </select>
+              </label>
+              <label className="admin-field">
+                Urutkan
+                <select
+                  value={fleetSort}
+                  onChange={(event) => {
+                    setFleetSort(event.target.value);
+                    setFleetPage(1);
+                  }}
+                >
+                  <option value="id-asc">ID armada A–Z</option>
+                  <option value="id-desc">ID armada Z–A</option>
+                  <option value="name-asc">Nama A–Z</option>
+                  <option value="name-desc">Nama Z–A</option>
+                  <option value="status-asc">Status layanan</option>
+                </select>
+              </label>
+            </div>
+            {selectedFleetIds.size > 0 && (
+              <div className="admin-selection-bar" role="status">
+                <strong>{selectedFleetIds.size} armada dipilih</strong>
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  disabled={saving}
+                  onClick={() => void runBulkAction('armada', 'activate', [...selectedFleetIds])}
+                >
+                  Aktifkan
+                </button>
+                <button
+                  type="button"
+                  className="admin-button admin-button--danger"
+                  disabled={saving}
+                  onClick={() => void runBulkAction('armada', 'deactivate', [...selectedFleetIds])}
+                >
+                  Nonaktifkan
+                </button>
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => setSelectedFleetIds(new Set())}
+                >
+                  Batalkan pilihan
+                </button>
+              </div>
+            )}
             {data.buses.length ? (
-              <FleetTable
-                buses={data.buses}
-                users={data.drivers}
-                positionsByBus={positionsByBus}
-                now={now}
-                saving={saving}
-                onEdit={openBusForm}
-                onDelete={deleteBus}
-              />
+              <>
+                <FleetTable
+                  buses={fleetPageRows}
+                  users={data.drivers}
+                  positionsByBus={positionsByBus}
+                  now={now}
+                  staleThresholdSeconds={staleThresholdSeconds}
+                  saving={saving}
+                  selectedIds={selectedFleetIds}
+                  onToggleSelection={(id) => toggleSelected(setSelectedFleetIds, id)}
+                  onSelectionChange={(ids, selected) =>
+                    setSelectedFleetIds((current) => {
+                      const next = new Set(current);
+                      for (const id of ids) {
+                        if (selected) next.add(id);
+                        else next.delete(id);
+                      }
+                      return next;
+                    })
+                  }
+                  onEdit={openBusForm}
+                  onDelete={deleteBus}
+                />
+                <TablePagination
+                  currentPage={currentFleetPage}
+                  pageCount={fleetPageCount}
+                  total={filteredFleet.length}
+                  onPageChange={setFleetPage}
+                />
+              </>
             ) : (
               <EmptyState
                 title="Belum ada armada"
@@ -1459,6 +2178,11 @@ export default function AdminPage() {
                 onAction={openNewBusForm}
               />
             )}
+            <DataTransferPanel
+              source="armada"
+              requestAdmin={requestAdmin}
+              onImported={handleImported}
+            />
           </section>
         )}
 
@@ -1495,6 +2219,8 @@ export default function AdminPage() {
                   setAccountList('users');
                   setDriverEditorOpen(false);
                   setEditingDriver(null);
+                  setAccountPage(1);
+                  setSelectedAccountIds(new Set());
                 }}
               >
                 Pengguna
@@ -1508,6 +2234,8 @@ export default function AdminPage() {
                 onClick={() => {
                   setAccountList('drivers');
                   setEditingDriver(null);
+                  setAccountPage(1);
+                  setSelectedAccountIds(new Set());
                 }}
               >
                 Driver
@@ -1516,91 +2244,217 @@ export default function AdminPage() {
             </div>
             {accountList === 'drivers' && driverEditorOpen && renderDriverForm()}
             {accountList === 'drivers' && renderDriverEditForm()}
-            {(accountList === 'users' ? data.users : data.drivers).length ? (
-              <div className="admin-table-wrap">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">{accountList === 'users' ? 'Pengguna' : 'Driver'}</th>
-                      <th scope="col">Masuk dengan</th>
-                      {accountList === 'drivers' && (
-                        <>
-                          <th scope="col">Penugasan</th>
-                          <th scope="col">Status penumpang</th>
-                        </>
-                      )}
-                      <th scope="col">Terakhir masuk</th>
-                      <th scope="col">Status</th>
-                      <th scope="col"><span className="admin-visually-hidden">Tindakan</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(accountList === 'users' ? data.users : data.drivers).map((user) => (
-                      <tr key={user.id}>
-                        <td data-label="Pengguna">
-                          <strong>{user.fullName || user.email}</strong>
-                          {user.fullName && <small>{user.email}</small>}
-                        </td>
-                        <td data-label="Masuk dengan">
-                          {user.provider === 'google' ? 'Google' : 'Email'}
-                        </td>
+            {accountRows.length ? (
+              <>
+                <div className="admin-table-toolbar" aria-label="Filter dan urutan akun">
+                  <label className="admin-field">
+                    Cari akun
+                    <input
+                      type="search"
+                      value={accountSearch}
+                      placeholder="Nama, email, atau armada"
+                      onChange={(event) => {
+                        setAccountSearch(event.target.value);
+                        setAccountPage(1);
+                      }}
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Status
+                    <select
+                      value={accountStatus}
+                      onChange={(event) => {
+                        setAccountStatus(event.target.value);
+                        setAccountPage(1);
+                      }}
+                    >
+                      <option value="all">Semua status</option>
+                      <option value="active">Aktif</option>
+                      <option value="inactive">Dinonaktifkan</option>
+                    </select>
+                  </label>
+                  <label className="admin-field">
+                    Urutkan
+                    <select
+                      value={accountSort}
+                      onChange={(event) => {
+                        setAccountSort(event.target.value);
+                        setAccountPage(1);
+                      }}
+                    >
+                      <option value="name-asc">Nama A–Z</option>
+                      <option value="name-desc">Nama Z–A</option>
+                      <option value="last-login-desc">Terakhir masuk terbaru</option>
+                      <option value="status-asc">Status akun</option>
+                    </select>
+                  </label>
+                </div>
+                {selectedAccountIds.size > 0 && (
+                  <div className="admin-selection-bar" role="status">
+                    <strong>{selectedAccountIds.size} akun dipilih</strong>
+                    <button
+                      type="button"
+                      className="admin-button admin-button--quiet"
+                      disabled={saving}
+                      onClick={() => void runBulkAction('akun', 'activate', [...selectedAccountIds])}
+                    >
+                      Aktifkan
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-button admin-button--danger"
+                      disabled={saving}
+                      onClick={() => void runBulkAction('akun', 'deactivate', [...selectedAccountIds])}
+                    >
+                      Nonaktifkan
+                    </button>
+                    {accountList === 'users' ? (
+                      <button
+                        type="button"
+                        className="admin-button admin-button--quiet"
+                        disabled={saving}
+                        onClick={() => void runBulkAction('akun', 'make_driver', [...selectedAccountIds])}
+                      >
+                        Jadikan driver
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="admin-button admin-button--quiet"
+                        disabled={saving}
+                        onClick={() => void runBulkAction('akun', 'make_user', [...selectedAccountIds])}
+                      >
+                        Jadikan pengguna
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="admin-button admin-button--quiet"
+                      onClick={() => setSelectedAccountIds(new Set())}
+                    >
+                      Batalkan pilihan
+                    </button>
+                  </div>
+                )}
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th scope="col" className="admin-select-column">
+                          <input
+                            type="checkbox"
+                            aria-label="Pilih akun pada halaman ini"
+                            checked={
+                              accountPageRows.length > 0 &&
+                              accountPageRows.every((user) => selectedAccountIds.has(user.id))
+                            }
+                            onChange={(event) => {
+                              setSelectedAccountIds((current) => {
+                                const next = new Set(current);
+                                for (const user of accountPageRows) {
+                                  if (event.target.checked) next.add(user.id);
+                                  else next.delete(user.id);
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </th>
+                        <th scope="col">{accountList === 'users' ? 'Pengguna' : 'Driver'}</th>
+                        <th scope="col">Masuk dengan</th>
                         {accountList === 'drivers' && (
                           <>
-                            <td data-label="Penugasan">{user.assignedBusId ?? 'Belum ditugaskan'}</td>
-                            <td data-label="Status penumpang">{formatOccupancy(user.occupancy)}</td>
+                            <th scope="col">Penugasan</th>
+                            <th scope="col">Status penumpang</th>
                           </>
                         )}
-                        <td data-label="Terakhir masuk">{formatDate(user.lastSignInAt)}</td>
-                        <td data-label="Status">
-                          {!user.bannedUntil || new Date(user.bannedUntil).getTime() <= now
-                            ? 'Aktif'
-                            : 'Dinonaktifkan'}
-                        </td>
-                        <td data-label="Tindakan" className="admin-actions-cell">
-                          {accountList === 'drivers' ? (
+                        <th scope="col">Terakhir masuk</th>
+                        <th scope="col">Status</th>
+                        <th scope="col"><span className="admin-visually-hidden">Tindakan</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountPageRows.map((user) => (
+                        <tr key={user.id} className={selectedAccountIds.has(user.id) ? 'is-selected' : ''}>
+                          <td data-label="Pilih" className="admin-select-column">
+                            <input
+                              type="checkbox"
+                              aria-label={`Pilih ${user.fullName || user.email}`}
+                              checked={selectedAccountIds.has(user.id)}
+                              onChange={() => toggleSelected(setSelectedAccountIds, user.id)}
+                            />
+                          </td>
+                          <td data-label={accountList === 'users' ? 'Pengguna' : 'Driver'}>
+                            <strong>{user.fullName || user.email}</strong>
+                            {user.fullName && <small>{user.email}</small>}
+                          </td>
+                          <td data-label="Masuk dengan">
+                            {user.provider === 'google' ? 'Google' : 'Email'}
+                          </td>
+                          {accountList === 'drivers' && (
                             <>
-                              <button
-                                type="button"
-                                className="admin-button admin-button--quiet"
-                                onClick={() => openDriverEditor(user)}
-                              >
-                                Ubah profil
-                              </button>
-                              <button
-                                type="button"
-                                className="admin-button admin-button--quiet"
-                                disabled={Boolean(user.assignedBusId) || saving}
-                                title={user.assignedBusId ? 'Lepas penugasan armada terlebih dahulu.' : undefined}
-                                onClick={() => void changeAccountType(user, 'user')}
-                              >
-                                Jadikan pengguna
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="admin-button admin-button--quiet"
-                                onClick={() => openDriverEditor(user)}
-                              >
-                                Ubah profil
-                              </button>
-                              <button
-                                type="button"
-                                className="admin-button admin-button--primary"
-                                disabled={saving}
-                                onClick={() => void changeAccountType(user, 'driver')}
-                              >
-                                Jadikan driver
-                              </button>
+                              <td data-label="Penugasan">{user.assignedBusId ?? 'Belum ditugaskan'}</td>
+                              <td data-label="Status penumpang">{formatOccupancy(user.occupancy)}</td>
                             </>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          <td data-label="Terakhir masuk">{formatDate(user.lastSignInAt)}</td>
+                          <td data-label="Status">
+                            {!user.bannedUntil || new Date(user.bannedUntil).getTime() <= now
+                              ? 'Aktif'
+                              : 'Dinonaktifkan'}
+                          </td>
+                          <td data-label="Tindakan" className="admin-actions-cell">
+                            {accountList === 'drivers' ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="admin-button admin-button--quiet"
+                                  onClick={() => openDriverEditor(user)}
+                                >
+                                  Ubah profil
+                                </button>
+                                <button
+                                  type="button"
+                                  className="admin-button admin-button--quiet"
+                                  disabled={Boolean(user.assignedBusId) || saving}
+                                  title={user.assignedBusId ? 'Lepas penugasan armada terlebih dahulu.' : undefined}
+                                  onClick={() => void changeAccountType(user, 'user')}
+                                >
+                                  Jadikan pengguna
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="admin-button admin-button--quiet"
+                                  onClick={() => openDriverEditor(user)}
+                                >
+                                  Ubah profil
+                                </button>
+                                <button
+                                  type="button"
+                                  className="admin-button admin-button--primary"
+                                  disabled={saving}
+                                  onClick={() => void changeAccountType(user, 'driver')}
+                                >
+                                  Jadikan driver
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <TablePagination
+                  currentPage={currentAccountPage}
+                  pageCount={accountPageCount}
+                  total={filteredAccounts.length}
+                  onPageChange={setAccountPage}
+                />
+              </>
             ) : (
               <EmptyState
                 title={accountList === 'users' ? 'Belum ada pengguna' : 'Belum ada driver'}
@@ -1612,6 +2466,146 @@ export default function AdminPage() {
                 action={accountList === 'drivers' ? 'Buat akun driver' : undefined}
                 onAction={accountList === 'drivers' ? () => setDriverEditorOpen(true) : undefined}
               />
+            )}
+            <DataTransferPanel
+              source="akun"
+              requestAdmin={requestAdmin}
+              onImported={handleImported}
+            />
+          </section>
+        )}
+
+        {activeTab === 'requests' && (
+          <section className="admin-workspace" aria-labelledby="requests-title">
+            <div className="admin-section-heading">
+              <div>
+                <h2 id="requests-title">Permintaan akses driver</h2>
+                <p>Periksa pengaju, tetapkan armada, lalu setujui atau tolak permintaan.</p>
+              </div>
+              <button
+                type="button"
+                className="admin-button admin-button--quiet"
+                onClick={() => void loadDriverRequests()}
+                disabled={driverRequestsLoading}
+                aria-busy={driverRequestsLoading}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                {driverRequestsLoading ? 'Memuat…' : 'Segarkan permintaan'}
+              </button>
+            </div>
+            {driverRequestsError && (
+              <div className="admin-message admin-message--error" role="alert">
+                {driverRequestsError}
+              </div>
+            )}
+            {driverRequestsLoading && !driverRequests.length ? (
+              <div className="admin-skeleton-table" aria-busy="true">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div className="admin-skeleton-row" key={index}>
+                    <span /><span /><span /><span />
+                  </div>
+                ))}
+              </div>
+            ) : pendingDriverRequests.length ? (
+              <div className="admin-request-list">
+                {pendingDriverRequests.map((item) => (
+                  <article className="admin-request-card" key={item.id}>
+                    <div className="admin-request-identity">
+                      <span className="admin-request-avatar" aria-hidden="true">
+                        {(item.full_name || item.email || '?').slice(0, 1).toUpperCase()}
+                      </span>
+                      <div>
+                        <h3>{item.full_name || 'Nama belum diisi'}</h3>
+                        <p>{item.email || 'Email tidak tersedia'}</p>
+                        <small>Diajukan {formatDateTime(item.created_at)}</small>
+                      </div>
+                    </div>
+                    <dl className="admin-request-facts">
+                      <div>
+                        <dt>Telepon</dt>
+                        <dd>{item.phone || 'Tidak diisi'}</dd>
+                      </div>
+                      <div>
+                        <dt>Armada diminta</dt>
+                        <dd>{item.requested_bus_id || 'Tidak ditentukan'}</dd>
+                      </div>
+                      <div>
+                        <dt>Catatan</dt>
+                        <dd>{item.notes || 'Tidak ada catatan'}</dd>
+                      </div>
+                    </dl>
+                    <label className="admin-field">
+                      Armada yang ditugaskan
+                      <select
+                        value={driverRequestBuses[item.id] ?? ''}
+                        onChange={(event) =>
+                          setDriverRequestBuses((current) => ({
+                            ...current,
+                            [item.id]: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Belum ditugaskan</option>
+                        {data.buses
+                          .filter((bus) => bus.is_active)
+                          .map((bus) => (
+                            <option
+                              key={bus.id}
+                              value={bus.id}
+                              disabled={Boolean(bus.driver_id) && bus.driver_id !== item.user_id}
+                            >
+                              {bus.id} — {bus.name}
+                              {bus.driver_id && bus.driver_id !== item.user_id ? ' (terisi)' : ''}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <div className="admin-request-actions">
+                      <button
+                        type="button"
+                        className="admin-button admin-button--primary"
+                        disabled={saving}
+                        onClick={() => void reviewDriverRequest(item, 'approve')}
+                      >
+                        <UserCheck size={16} aria-hidden="true" />
+                        Setujui
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-button admin-button--danger"
+                        disabled={saving}
+                        onClick={() => void reviewDriverRequest(item, 'reject')}
+                      >
+                        Tolak
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                title="Tidak ada permintaan tertunda"
+                detail="Permintaan akses driver baru akan muncul di sini."
+              />
+            )}
+            {driverRequests.some((item) => item.status !== 'pending') && (
+              <details className="admin-review-history">
+                <summary>
+                  Riwayat keputusan ({driverRequests.filter((item) => item.status !== 'pending').length})
+                </summary>
+                <ul>
+                  {driverRequests
+                    .filter((item) => item.status !== 'pending')
+                    .slice(0, 20)
+                    .map((item) => (
+                      <li key={item.id}>
+                        <strong>{item.full_name || item.email}</strong>
+                        <span>{item.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span>
+                        <small>{formatDateTime(item.reviewed_at ?? item.updated_at)}</small>
+                      </li>
+                    ))}
+                </ul>
+              </details>
             )}
           </section>
         )}
@@ -1703,6 +2697,11 @@ export default function AdminPage() {
                 onAction={stopCreation}
               />
             )}
+            <DataTransferPanel
+              source="halte"
+              requestAdmin={requestAdmin}
+              onImported={handleImported}
+            />
           </section>
         )}
 
@@ -1808,17 +2807,38 @@ export default function AdminPage() {
                       <th scope="col">Tabel</th>
                       <th scope="col">Target ID</th>
                       <th scope="col">IP</th>
+                      <th scope="col"><span className="admin-visually-hidden">Rincian</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {auditLogs.map((log) => (
                       <tr key={log.id}>
-                        <td data-label="Waktu">{formatDate(log.created_at)}</td>
+                        <td data-label="Waktu">{formatDateTime(log.created_at)}</td>
                         <td data-label="Admin">{log.admin_id.slice(0, 8)}…</td>
                         <td data-label="Aksi"><code>{log.action}</code></td>
                         <td data-label="Tabel">{log.target_table}</td>
                         <td data-label="Target ID">{log.target_id ?? '-'}</td>
                         <td data-label="IP">{log.ip_address ?? '-'}</td>
+                        <td data-label="Rincian" className="admin-detail-cell">
+                          <details className="admin-detail">
+                            <summary>Detail</summary>
+                            <dl className="admin-detail-list">
+                              <div><dt>Waktu lengkap</dt><dd>{formatDateTime(log.created_at)}</dd></div>
+                              <div><dt>Admin ID</dt><dd>{log.admin_id}</dd></div>
+                              <div><dt>User agent</dt><dd>{log.user_agent ?? '-'}</dd></div>
+                            </dl>
+                            <div className="admin-json-grid">
+                              <div>
+                                <strong>Nilai lama</strong>
+                                <pre>{formatJson(log.old_value)}</pre>
+                              </div>
+                              <div>
+                                <strong>Nilai baru</strong>
+                                <pre>{formatJson(log.new_value)}</pre>
+                              </div>
+                            </div>
+                          </details>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1938,6 +2958,12 @@ export default function AdminPage() {
                 </label>
               </div>
             </div>
+            <PositionReplay
+              history={replayHistory}
+              busName={
+                data.buses.find((bus) => bus.id === historyFilters.busId)?.name ?? null
+              }
+            />
             {historyLoading ? (
               <div className="admin-skeleton-table" aria-busy="true">
                 {Array.from({ length: 5 }, (_, index) => (
@@ -1957,12 +2983,13 @@ export default function AdminPage() {
                       <th scope="col">Kecepatan</th>
                       <th scope="col">Kepadatan</th>
                       <th scope="col">Sumber</th>
+                      <th scope="col"><span className="admin-visually-hidden">Rincian</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {positionHistory.map((item) => (
                       <tr key={item.id}>
-                        <td data-label="Waktu">{formatDate(item.recorded_at)}</td>
+                        <td data-label="Waktu">{formatDateTime(item.recorded_at)}</td>
                         <td data-label="Armada">{item.bus_id}</td>
                         <td data-label="Koordinat" className="admin-number">
                           {item.lat.toFixed(5)}, {item.lng.toFixed(5)}
@@ -1970,6 +2997,17 @@ export default function AdminPage() {
                         <td data-label="Kecepatan">{Math.round(item.speed_kmh)} km/j</td>
                         <td data-label="Kepadatan">{formatOccupancy(item.occupancy)}</td>
                         <td data-label="Sumber">{item.source_type}</td>
+                        <td data-label="Rincian" className="admin-detail-cell">
+                          <details className="admin-detail">
+                            <summary>Detail</summary>
+                            <dl className="admin-detail-list">
+                              <div><dt>Waktu lengkap</dt><dd>{formatDateTime(item.recorded_at)}</dd></div>
+                              <div><dt>ID riwayat</dt><dd>{item.id}</dd></div>
+                              <div><dt>Arah</dt><dd>{Math.round(item.heading)}°</dd></div>
+                              <div><dt>Sumber</dt><dd>{item.source_type}</dd></div>
+                            </dl>
+                          </details>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2022,44 +3060,143 @@ export default function AdminPage() {
               </span>
             </div>
             {data.reports.length ? (
-              <div className="admin-table-wrap">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Waktu</th>
-                      <th scope="col">Armada</th>
-                      <th scope="col">Kepadatan</th>
-                      <th scope="col">Lokasi</th>
-                      <th scope="col"><span className="admin-visually-hidden">Tindakan</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.reports.map((report) => (
-                      <tr key={report.id}>
-                        <td data-label="Waktu">{formatDate(report.created_at)}</td>
-                        <td data-label="Armada">
-                          {report.bus_id ?? 'Tidak diketahui'}
-                          {report.stop_id && <small>{report.stop_id}</small>}
-                        </td>
-                        <td data-label="Kepadatan">{formatOccupancy(report.occupancy)}</td>
-                        <td data-label="Lokasi" className="admin-number">
-                          {report.lat.toFixed(5)}, {report.lng.toFixed(5)}
-                        </td>
-                        <td data-label="Tindakan" className="admin-actions-cell">
-                          <button
-                            type="button"
-                            className="admin-button admin-button--danger"
-                            onClick={() => void deleteReport(report)}
-                            disabled={saving}
-                          >
-                            Hapus laporan
-                          </button>
-                        </td>
+              <>
+                <div className="admin-table-toolbar" aria-label="Filter dan urutan laporan">
+                  <label className="admin-field">
+                    Cari laporan
+                    <input
+                      type="search"
+                      value={reportSearch}
+                      placeholder="ID, armada, atau halte"
+                      onChange={(event) => {
+                        setReportSearch(event.target.value);
+                        setReportPage(1);
+                      }}
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Kepadatan
+                    <select
+                      value={reportOccupancy}
+                      onChange={(event) => {
+                        setReportOccupancy(event.target.value);
+                        setReportPage(1);
+                      }}
+                    >
+                      <option value="all">Semua kepadatan</option>
+                      <option value="low">Lega</option>
+                      <option value="medium">Sedang</option>
+                      <option value="full">Penuh</option>
+                    </select>
+                  </label>
+                  <label className="admin-field">
+                    Urutkan
+                    <select
+                      value={reportSort}
+                      onChange={(event) => {
+                        setReportSort(event.target.value);
+                        setReportPage(1);
+                      }}
+                    >
+                      <option value="newest">Terbaru</option>
+                      <option value="oldest">Terlama</option>
+                    </select>
+                  </label>
+                  <AdminDownloadButton resource="laporan" label="Ekspor CSV" />
+                </div>
+                {selectedReportIds.size > 0 && (
+                  <div className="admin-selection-bar" role="status">
+                    <strong>{selectedReportIds.size} laporan dipilih</strong>
+                    <button
+                      type="button"
+                      className="admin-button admin-button--danger"
+                      disabled={saving}
+                      onClick={() => void runBulkAction('laporan', 'delete', [...selectedReportIds])}
+                    >
+                      Hapus terpilih
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-button admin-button--quiet"
+                      onClick={() => setSelectedReportIds(new Set())}
+                    >
+                      Batalkan pilihan
+                    </button>
+                  </div>
+                )}
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th scope="col" className="admin-select-column">
+                          <input
+                            type="checkbox"
+                            aria-label="Pilih laporan pada halaman ini"
+                            checked={
+                              reportPageRows.length > 0 &&
+                              reportPageRows.every((report) => selectedReportIds.has(report.id))
+                            }
+                            onChange={(event) => {
+                              setSelectedReportIds((current) => {
+                                const next = new Set(current);
+                                for (const report of reportPageRows) {
+                                  if (event.target.checked) next.add(report.id);
+                                  else next.delete(report.id);
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </th>
+                        <th scope="col">Waktu</th>
+                        <th scope="col">Armada</th>
+                        <th scope="col">Kepadatan</th>
+                        <th scope="col">Lokasi</th>
+                        <th scope="col"><span className="admin-visually-hidden">Tindakan</span></th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {reportPageRows.map((report) => (
+                        <tr key={report.id} className={selectedReportIds.has(report.id) ? 'is-selected' : ''}>
+                          <td data-label="Pilih" className="admin-select-column">
+                            <input
+                              type="checkbox"
+                              aria-label={`Pilih laporan ${report.id}`}
+                              checked={selectedReportIds.has(report.id)}
+                              onChange={() => toggleSelected(setSelectedReportIds, report.id)}
+                            />
+                          </td>
+                          <td data-label="Waktu">{formatDateTime(report.created_at)}</td>
+                          <td data-label="Armada">
+                            {report.bus_id ?? 'Tidak diketahui'}
+                            {report.stop_id && <small>{report.stop_id}</small>}
+                          </td>
+                          <td data-label="Kepadatan">{formatOccupancy(report.occupancy)}</td>
+                          <td data-label="Lokasi" className="admin-number">
+                            {report.lat.toFixed(5)}, {report.lng.toFixed(5)}
+                          </td>
+                          <td data-label="Tindakan" className="admin-actions-cell">
+                            <button
+                              type="button"
+                              className="admin-button admin-button--danger"
+                              onClick={() => void deleteReport(report)}
+                              disabled={saving}
+                            >
+                              Hapus laporan
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <TablePagination
+                  currentPage={currentReportPage}
+                  pageCount={reportPageCount}
+                  total={filteredReports.length}
+                  onPageChange={setReportPage}
+                />
+              </>
             ) : (
               <EmptyState
                 title="Belum ada laporan baru"
@@ -2077,6 +3214,21 @@ export default function AdminPage() {
                 <p>Jam menggunakan WIB. Rute mengikuti urutan halte pada bagian Halte.</p>
               </div>
               <Settings2 size={20} aria-hidden="true" />
+            </div>
+            <div className="admin-settings-meta">
+              <Database size={18} aria-hidden="true" />
+              <div>
+                <span>Sumber pengaturan</span>
+                <strong>{settingsSourceLabel(data.settingsSource)}</strong>
+              </div>
+              <div>
+                <span>Diperbarui</span>
+                <strong>{formatDateTime(data.settingsUpdatedAt ?? data.settings.updatedAt ?? null)}</strong>
+              </div>
+              <div>
+                <span>Ambang GPS stale</span>
+                <strong>{staleThresholdSeconds} detik</strong>
+              </div>
             </div>
             <form className="admin-form admin-settings-form" onSubmit={submitSettings}>
               <fieldset className="admin-day-fieldset">
@@ -2116,6 +3268,58 @@ export default function AdminPage() {
                   />
                 </label>
               </div>
+              <fieldset className="admin-settings-group">
+                <legend>Jadwal keberangkatan</legend>
+                <div className="admin-fields admin-fields--three">
+                  <label className="admin-field">
+                    Keberangkatan pertama
+                    <input
+                      name="first-departure-time"
+                      type="time"
+                      value={scheduleSettings.firstDepartureTime}
+                      onChange={(event) =>
+                        setScheduleSettings((current) => ({
+                          ...current,
+                          firstDepartureTime: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Keberangkatan terakhir
+                    <input
+                      name="last-departure-time"
+                      type="time"
+                      value={scheduleSettings.lastDepartureTime}
+                      onChange={(event) =>
+                        setScheduleSettings((current) => ({
+                          ...current,
+                          lastDepartureTime: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Interval keberangkatan (menit)
+                    <input
+                      name="headway-minutes"
+                      type="number"
+                      min="1"
+                      max="240"
+                      value={scheduleSettings.headwayMinutes}
+                      onChange={(event) =>
+                        setScheduleSettings((current) => ({
+                          ...current,
+                          headwayMinutes: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              </fieldset>
               <fieldset className="admin-settings-group">
                 <legend>Estimasi dan posisi</legend>
                 <div className="admin-fields admin-fields--three">
@@ -2165,6 +3369,58 @@ export default function AdminPage() {
                         setEtaSettings((current) => ({
                           ...current,
                           staleThresholdSeconds: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Durasi berhenti rata-rata (detik)
+                    <input
+                      name="average-dwell-seconds"
+                      type="number"
+                      min="0"
+                      max="600"
+                      value={etaSettings.averageDwellSeconds ?? 30}
+                      onChange={(event) =>
+                        setEtaSettings((current) => ({
+                          ...current,
+                          averageDwellSeconds: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Pengali lalu lintas
+                    <input
+                      name="traffic-multiplier"
+                      type="number"
+                      min="1"
+                      max="5"
+                      step="0.05"
+                      value={etaSettings.trafficMultiplier ?? 1}
+                      onChange={(event) =>
+                        setEtaSettings((current) => ({
+                          ...current,
+                          trafficMultiplier: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Ambang keyakinan (detik)
+                    <input
+                      name="confidence-threshold-seconds"
+                      type="number"
+                      min="1"
+                      max="3600"
+                      value={etaSettings.confidenceThresholdSeconds ?? 180}
+                      onChange={(event) =>
+                        setEtaSettings((current) => ({
+                          ...current,
+                          confidenceThresholdSeconds: Number(event.target.value),
                         }))
                       }
                       required
@@ -2251,6 +3507,32 @@ export default function AdminPage() {
                     />
                     Mode pemeliharaan
                   </label>
+                  <label className="admin-day">
+                    <input
+                      type="checkbox"
+                      checked={featureFlags.pushNotificationsEnabled ?? false}
+                      onChange={(event) =>
+                        setFeatureFlags((current) => ({
+                          ...current,
+                          pushNotificationsEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    Aktifkan notifikasi penumpang
+                  </label>
+                  <label className="admin-day">
+                    <input
+                      type="checkbox"
+                      checked={featureFlags.driverAccessRequestsEnabled ?? false}
+                      onChange={(event) =>
+                        setFeatureFlags((current) => ({
+                          ...current,
+                          driverAccessRequestsEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    Izinkan permintaan akses driver
+                  </label>
                 </div>
               </fieldset>
               <fieldset className="admin-settings-group">
@@ -2332,13 +3614,430 @@ export default function AdminPage() {
   );
 }
 
+function TablePagination({
+  currentPage,
+  pageCount,
+  total,
+  onPageChange,
+}: {
+  currentPage: number;
+  pageCount: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (!total) return null;
+  return (
+    <nav className="admin-pagination" aria-label="Navigasi halaman tabel">
+      <button
+        type="button"
+        className="admin-button admin-button--quiet"
+        onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+        disabled={currentPage <= 1}
+      >
+        Sebelumnya
+      </button>
+      <span>
+        Halaman {currentPage} dari {pageCount} · {total} data
+      </span>
+      <button
+        type="button"
+        className="admin-button admin-button--quiet"
+        onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))}
+        disabled={currentPage >= pageCount}
+      >
+        Selanjutnya
+      </button>
+    </nav>
+  );
+}
+
+async function downloadAdminFile(url: string, fallbackFilename: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.');
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(`Sesi admin tidak dapat dibaca: ${sessionError.message}`);
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) throw new Error('Sesi admin sudah berakhir. Masuk kembali.');
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const message =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : `Unduhan gagal dengan status ${response.status}.`;
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? fallbackFilename;
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function AdminDownloadButton({
+  resource,
+  label,
+}: {
+  resource: string;
+  label: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <div className="admin-download-control">
+      <button
+        type="button"
+        className="admin-button admin-button--quiet"
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => {
+          setBusy(true);
+          setError('');
+          void downloadAdminFile(
+            `/api/admin/data?resource=${encodeURIComponent(resource)}`,
+            `linusku-${resource}.csv`
+          )
+            .catch((reason: unknown) => setError(messageFromError(reason)))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <Download size={16} aria-hidden="true" />
+        {busy ? 'Mengunduh…' : label}
+      </button>
+      {error && <span className="admin-inline-error" role="alert">{error}</span>}
+    </div>
+  );
+}
+
+function DataTransferPanel({
+  source,
+  requestAdmin,
+  onImported,
+}: {
+  source: TransferSource;
+  requestAdmin: AdminRequester;
+  onImported: (result: ImportResponse) => Promise<boolean>;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<ImportResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const labels: Record<TransferSource, string> = {
+    armada: 'armada',
+    halte: 'halte',
+    akun: 'akun',
+  };
+
+  const importFile = async () => {
+    if (!file) {
+      setError('Pilih file CSV atau JSON terlebih dahulu.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Impor dapat membuat atau memperbarui data ${labels[source]}. Pastikan file sudah benar. Lanjutkan?`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setResult(null);
+    try {
+      const text = await file.text();
+      let body: { resource: TransferSource; csv?: string; rows?: unknown[] };
+      if (file.name.toLocaleLowerCase('id-ID').endsWith('.json') || file.type.includes('json')) {
+        const parsed: unknown = JSON.parse(text);
+        if (!Array.isArray(parsed)) throw new Error('File JSON harus berisi array baris data.');
+        body = { resource: source, rows: parsed };
+      } else {
+        body = { resource: source, csv: text };
+      }
+      const payload = await requestAdmin<ImportResponse>('/api/admin/data', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      setResult(payload);
+      await onImported(payload);
+    } catch (reason) {
+      setError(messageFromError(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="admin-transfer-panel" aria-labelledby={`transfer-${source}`}>
+      <div className="admin-transfer-heading">
+        <div>
+          <h3 id={`transfer-${source}`}>Transfer data {labels[source]}</h3>
+          <p>Unduh template, ekspor data saat ini, atau impor CSV/JSON.</p>
+        </div>
+        <div className="admin-transfer-actions">
+          <button
+            type="button"
+            className="admin-button admin-button--quiet"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError('');
+              void downloadAdminFile(
+                `/api/admin/data?resource=template&source=${source}`,
+                `linusku-template-${source}.csv`
+              )
+                .catch((reason: unknown) => setError(messageFromError(reason)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            <Download size={16} aria-hidden="true" />
+            Unduh template CSV
+          </button>
+          <AdminDownloadButton resource={source} label="Ekspor CSV" />
+        </div>
+      </div>
+      <div className="admin-import-row">
+        <label className="admin-field">
+          File CSV atau JSON
+          <input
+            type="file"
+            accept=".csv,.json,text/csv,application/json"
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setResult(null);
+              setError('');
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="admin-button admin-button--primary"
+          disabled={busy || !file}
+          aria-busy={busy}
+          onClick={() => void importFile()}
+        >
+          <Upload size={16} aria-hidden="true" />
+          {busy ? 'Memproses…' : 'Impor data'}
+        </button>
+      </div>
+      <p className="admin-help">
+        CSV mengikuti kolom template. JSON harus berupa array objek dengan kolom yang sama. Maksimal 500 baris per impor.
+      </p>
+      {error && <div className="admin-message admin-message--error" role="alert">{error}</div>}
+      {result && (
+        <div className="admin-import-result" role="status">
+          <strong>
+            {result.created} dibuat · {result.updated} diperbarui · {result.failed} gagal
+          </strong>
+          {result.results.length > 0 && (
+            <details>
+              <summary>Rincian per baris ({result.results.length})</summary>
+              <ul>
+                {result.results.map((row) => (
+                  <li key={`${row.index}-${row.id ?? 'tanpa-id'}`} className={row.status === 'failed' ? 'is-failed' : ''}>
+                    <span>Baris {row.index + 1}</span>
+                    <strong>{row.id ?? 'Tanpa ID'}</strong>
+                    <span>
+                      {row.status === 'created'
+                        ? 'Dibuat'
+                        : row.status === 'updated'
+                          ? 'Diperbarui'
+                          : 'Gagal'}
+                    </span>
+                    {row.errors.length > 0 && <small>{row.errors.join('; ')}</small>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PositionReplay({
+  history,
+  busName,
+}: {
+  history: PositionHistory[];
+  busName: string | null;
+}) {
+  const points = useMemo(
+    () => [...history].sort((left, right) => left.recorded_at.localeCompare(right.recorded_at)),
+    [history]
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    setActiveIndex(Math.max(0, points.length - 1));
+    setPlaying(false);
+  }, [points]);
+
+  useEffect(() => {
+    if (!playing || points.length < 2) return;
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => Math.min(current + 1, points.length - 1));
+    }, 650);
+    return () => window.clearInterval(timer);
+  }, [playing, points.length]);
+
+  useEffect(() => {
+    if (playing && activeIndex >= points.length - 1) setPlaying(false);
+  }, [activeIndex, playing, points.length]);
+
+  if (!points.length) {
+    return (
+      <div className="admin-replay admin-replay--empty">
+        <MapPin size={20} aria-hidden="true" />
+        <p>Pilih satu armada dan terapkan filter untuk melihat replay rute.</p>
+      </div>
+    );
+  }
+
+  const width = 640;
+  const height = 260;
+  const padding = 28;
+  const latitudes = points.map((point) => point.lat);
+  const longitudes = points.map((point) => point.lng);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+  const latRange = Math.max(maxLat - minLat, 0.0001);
+  const lngRange = Math.max(maxLng - minLng, 0.0001);
+  const project = (point: PositionHistory) => ({
+    x: padding + ((point.lng - minLng) / lngRange) * (width - padding * 2),
+    y: height - padding - ((point.lat - minLat) / latRange) * (height - padding * 2),
+  });
+  const projected = points.map(project);
+  const active = points[Math.min(activeIndex, points.length - 1)];
+  const activePoint = projected[Math.min(activeIndex, projected.length - 1)];
+  const polyline = projected.map((point) => `${point.x},${point.y}`).join(' ');
+  const sampleStep = Math.max(1, Math.ceil(points.length / 12));
+
+  return (
+    <section className="admin-replay" aria-labelledby="replay-title">
+      <div className="admin-replay-heading">
+        <div>
+          <h3 id="replay-title">Replay operasional {busName ?? active.bus_id}</h3>
+          <p>{points.length} titik dari {formatDateTime(points[0].recorded_at)} hingga {formatDateTime(points[points.length - 1].recorded_at)}.</p>
+        </div>
+        <div className="admin-replay-controls">
+          <button
+            type="button"
+            className="admin-button admin-button--quiet"
+            onClick={() => {
+              setActiveIndex(0);
+              setPlaying(true);
+            }}
+            disabled={points.length < 2}
+            aria-label="Mulai replay"
+          >
+            <Play size={16} aria-hidden="true" />
+            Putar
+          </button>
+          <button
+            type="button"
+            className="admin-button admin-button--quiet"
+            onClick={() => setPlaying((current) => !current)}
+            disabled={points.length < 2}
+            aria-label={playing ? 'Jeda replay' : 'Lanjutkan replay'}
+          >
+            {playing ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+            {playing ? 'Jeda' : 'Lanjut'}
+          </button>
+          <button
+            type="button"
+            className="admin-button admin-button--quiet"
+            onClick={() => {
+              setPlaying(false);
+              setActiveIndex(Math.max(0, points.length - 1));
+            }}
+            aria-label="Kembali ke titik terakhir"
+          >
+            <RotateCcw size={16} aria-hidden="true" />
+            Ulang
+          </button>
+        </div>
+      </div>
+      <div className="admin-replay-visual">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-labelledby="replay-svg-title replay-svg-description"
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <title id="replay-svg-title">Visualisasi lintasan GPS {active.bus_id}</title>
+          <desc id="replay-svg-description">
+            Garis menunjukkan arah perjalanan armada dan titik biru menunjukkan posisi saat ini.
+          </desc>
+          <rect className="admin-replay-canvas" x="0" y="0" width={width} height={height} />
+          <polyline className="admin-replay-path" points={polyline} />
+          {projected.map((point, index) => (
+            <circle
+              key={points[index].id}
+              className="admin-replay-point"
+              cx={point.x}
+              cy={point.y}
+              r={index === activeIndex ? 6 : 3}
+            />
+          ))}
+          <circle className="admin-replay-active" cx={activePoint.x} cy={activePoint.y} r="8" />
+        </svg>
+        <div className="admin-replay-current">
+          <span>{formatDateTime(active.recorded_at)}</span>
+          <strong>{active.lat.toFixed(5)}, {active.lng.toFixed(5)}</strong>
+          <small>{Math.round(active.speed_kmh)} km/j · {formatOccupancy(active.occupancy)}</small>
+        </div>
+      </div>
+      <label className="admin-replay-slider">
+        <span>Posisi replay</span>
+        <input
+          type="range"
+          min="0"
+          max={Math.max(0, points.length - 1)}
+          value={Math.min(activeIndex, points.length - 1)}
+          onChange={(event) => {
+            setPlaying(false);
+            setActiveIndex(Number(event.target.value));
+          }}
+          aria-valuetext={formatDateTime(active.recorded_at)}
+        />
+      </label>
+      <ol className="admin-replay-timeline">
+        {points.map((point, index) =>
+          index % sampleStep === 0 || index === points.length - 1 ? (
+            <li key={point.id} className={index === activeIndex ? 'is-active' : ''}>
+              <span>{formatTime(point.recorded_at)}</span>
+              <small>{Math.round(point.speed_kmh)} km/j</small>
+            </li>
+          ) : null
+        )}
+      </ol>
+    </section>
+  );
+}
+
 function FleetTable({
   buses,
   users,
   positionsByBus,
   now,
+  staleThresholdSeconds,
   saving,
   compact = false,
+  selectedIds,
+  onToggleSelection,
+  onSelectionChange,
   onEdit,
   onDelete,
 }: {
@@ -2346,8 +4045,12 @@ function FleetTable({
   users: AdminUser[];
   positionsByBus: Map<string, AdminPosition>;
   now: number;
+  staleThresholdSeconds: number;
   saving: boolean;
   compact?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelection?: (id: string) => void;
+  onSelectionChange?: (ids: string[], selected: boolean) => void;
   onEdit: (bus: AdminBus) => void;
   onDelete: (bus: AdminBus) => void;
 }) {
@@ -2356,6 +4059,21 @@ function FleetTable({
       <table className="admin-table">
         <thead>
           <tr>
+            {selectedIds && onToggleSelection && (
+              <th scope="col" className="admin-select-column">
+                <input
+                  type="checkbox"
+                  aria-label="Pilih armada pada halaman ini"
+                  checked={buses.length > 0 && buses.every((bus) => selectedIds.has(bus.id))}
+                  onChange={(event) =>
+                    onSelectionChange?.(
+                      buses.map((bus) => bus.id),
+                      event.target.checked
+                    )
+                  }
+                />
+              </th>
+            )}
             <th scope="col">Armada</th>
             <th scope="col">Driver</th>
             <th scope="col">Posisi terakhir</th>
@@ -2370,9 +4088,19 @@ function FleetTable({
             const driver = users.find((user) => user.id === bus.driver_id);
             const isFresh =
               Boolean(position) &&
-              now - new Date(position?.updated_at ?? '').getTime() <= 45000;
+              now - new Date(position?.updated_at ?? '').getTime() <= staleThresholdSeconds * 1000;
             return (
-              <tr key={bus.id}>
+              <tr key={bus.id} className={selectedIds?.has(bus.id) ? 'is-selected' : ''}>
+                {selectedIds && onToggleSelection && (
+                  <td data-label="Pilih" className="admin-select-column">
+                    <input
+                      type="checkbox"
+                      aria-label={`Pilih armada ${bus.id}`}
+                      checked={selectedIds.has(bus.id)}
+                      onChange={() => onToggleSelection(bus.id)}
+                    />
+                  </td>
+                )}
                 <td data-label="Armada">
                   <strong>{bus.id}</strong>
                   <small>{bus.name}</small>

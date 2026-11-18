@@ -13,7 +13,7 @@ import {
   useMap,
 } from 'react-leaflet';
 import L from 'leaflet';
-import { Globe, Map as MapIcon } from 'lucide-react';
+import { Crosshair, Globe, Map as MapIcon } from 'lucide-react';
 import {
   BusPosition,
   BusStop,
@@ -34,6 +34,9 @@ interface LinusMapProps {
   routePolyline?: [number, number][];
   selectedStopId: string | null;
   onSelectStop: (stop: BusStop) => void;
+  onLocateMe?: () => void;
+  isLocating?: boolean;
+  currentLocation?: { lat: number; lng: number } | null;
   etaSettings?: ETASettings;
   mapSettings?: MapSettings;
 }
@@ -50,6 +53,10 @@ const CITY_TILE_URL =
     : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
 
 const FALLBACK_OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>';
+const CARTO_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 const SATELLITE_TILE_URL =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
@@ -93,27 +100,14 @@ function createBusIcon(bus: BusPosition) {
   return L.divIcon({
     className: 'linus-bus-marker',
     html: `
-      <div style="
-        display:flex;
-        align-items:center;
-        gap:6px;
-        background:#0f172a;
-        color:#ffffff;
-        padding:6px 10px;
-        border-radius:9999px;
-        border:2px solid #ffffff;
-        box-shadow:0 6px 16px rgba(15,23,42,0.28);
-        font-size:12px;
-        font-weight:700;
-        white-space:nowrap;
-        transform:translate(-50%,-50%);
-      ">
-        <span style="width:8px;height:8px;border-radius:9999px;background:${badgeColor};display:inline-block;"></span>
-        <span>${bus.busId}</span>
+      <div class="linus-bus-marker-inner">
+        <span class="linus-bus-marker-status" style="background:${badgeColor};"></span>
+        <img src="/linus-maskot.svg" alt="" />
+        <span class="linus-bus-marker-label">${bus.busId}</span>
       </div>
     `,
-    iconSize: [0, 0],
-    iconAnchor: [0, 0],
+    iconSize: [74, 74],
+    iconAnchor: [37, 64],
   });
 }
 
@@ -137,12 +131,30 @@ function MapFlyToStop({
   return null;
 }
 
+function MapFlyToLocation({
+  location,
+}: {
+  location: { lat: number; lng: number } | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!location) return;
+    map.flyTo([location.lat, location.lng], 17, { duration: 0.8 });
+  }, [location, map]);
+
+  return null;
+}
+
 export default function LinusMap({
   buses,
   stops = USU_STOPS,
   routePolyline = ROUTE_POLYLINE,
   selectedStopId,
   onSelectStop,
+  onLocateMe,
+  isLocating = false,
+  currentLocation = null,
   etaSettings = DEFAULT_ETA_SETTINGS,
   mapSettings = DEFAULT_MAP_SETTINGS,
 }: LinusMapProps) {
@@ -180,9 +192,15 @@ export default function LinusMap({
         ? process.env.NEXT_PUBLIC_MAP_TILE_URL?.trim() || FALLBACK_OSM_URL
         : CITY_TILE_URL;
   const cityTileUrl = useFallbackOsm ? FALLBACK_OSM_URL : configuredTileUrl;
+  const cityTileAttribution =
+    cityTileUrl === FALLBACK_OSM_URL ? OSM_ATTRIBUTION : CARTO_ATTRIBUTION;
 
   return (
     <div className="relative h-full w-full">
+      <div className="map-use-guide" role="status">
+        <strong>Pilih halte untuk melihat ETA</strong>
+        <span>Klik marker atau nama halte di samping</span>
+      </div>
       {/* Toggle Mode Kota / Satelit */}
       <div className="map-mode-toggle">
         <button
@@ -204,23 +222,33 @@ export default function LinusMap({
           Satelit
         </button>
       </div>
+      {onLocateMe && (
+        <button
+          type="button"
+          className="map-locate-button"
+          onClick={onLocateMe}
+          disabled={isLocating}
+          aria-label="Cari halte terdekat dari lokasi saya"
+          title="Cari halte terdekat dari lokasi saya"
+        >
+          <Crosshair size={20} aria-hidden="true" />
+          <span>{isLocating ? 'Mencari lokasi…' : 'Lokasi saya'}</span>
+        </button>
+      )}
 
       <MapContainer
         center={USU_CENTER}
         zoom={16}
-        minZoom={15}
+        minZoom={10}
         maxZoom={18}
-        maxBounds={USU_MAP_BOUNDS}
-        maxBoundsViscosity={1.0}
         scrollWheelZoom={true}
         className="h-full w-full rounded-2xl z-0"
       >
         {mapMode === 'city' ? (
           <TileLayer
             key={`city-${cityTileUrl}`}
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            attribution={cityTileAttribution}
             url={cityTileUrl}
-            bounds={USU_MAP_BOUNDS}
             maxZoom={18}
             eventHandlers={{
               tileerror: () => {
@@ -236,29 +264,34 @@ export default function LinusMap({
               key="satellite-base"
               attribution='Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
               url={SATELLITE_TILE_URL}
-              bounds={USU_MAP_BOUNDS}
               maxZoom={18}
             />
             <TileLayer
               key="satellite-labels"
               url={SATELLITE_LABELS_URL}
-              bounds={USU_MAP_BOUNDS}
               maxZoom={18}
             />
           </>
         )}
 
-        <Polygon
-          positions={OUTSIDE_CAMPUS_MASK}
-          pathOptions={{
-            stroke: false,
-            fillColor: mapMode === 'satellite' ? '#0f172a' : '#f8fafc',
-            fillOpacity: mapMode === 'satellite' ? 0.65 : 0.78,
-            interactive: false,
-          }}
-        />
-
         <MapFlyToStop selectedStopId={selectedStopId} stops={stops} />
+        <MapFlyToLocation location={currentLocation} />
+        {currentLocation && (
+          <CircleMarker
+            center={[currentLocation.lat, currentLocation.lng]}
+            radius={9}
+            pathOptions={{
+              color: '#ffffff',
+              weight: 3,
+              fillColor: '#2563eb',
+              fillOpacity: 1,
+            }}
+          >
+            <Popup>
+              <div className="map-popup-name">Lokasi kamu</div>
+            </Popup>
+          </CircleMarker>
+        )}
 
         <Polyline
           positions={routePolyline}
@@ -296,12 +329,11 @@ export default function LinusMap({
             >
               <Popup>
                 <div className="min-w-[170px] space-y-1">
-                  <p className="map-popup-label">Halte {stop.sequenceOrder}</p>
                   <p className="map-popup-name">{stop.name}</p>
                   <p className="map-popup-area">{stop.area}</p>
                   {nearestEta !== null && (
                     <p className="map-popup-eta">
-                      Bus terdekat: ~{nearestEta} menit
+                      {nearestEta <= 1 ? 'Bus sudah dekat' : `Bus terdekat: ${nearestEta} menit`}
                     </p>
                   )}
                 </div>
@@ -328,7 +360,6 @@ export default function LinusMap({
                     {occupancyLabel[bus.occupancy]}
                   </span>
                 </p>
-                <p className="map-popup-detail">Sumber: {bus.sourceType}</p>
               </div>
             </Popup>
           </Marker>

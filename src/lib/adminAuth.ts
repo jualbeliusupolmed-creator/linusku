@@ -36,7 +36,17 @@ export async function requireAdmin(
   }
 
   const allowlist = getAdminAllowlist();
-  if (allowlist.length === 0) {
+  const { data: dbAdmins, error: dbAdminError } = await client
+    .from('linusku_admin_users')
+    .select('email')
+    .eq('active', true);
+  const dbAllowlist = dbAdminError
+    ? []
+    : (dbAdmins ?? [])
+        .map((row) => String(row.email ?? '').trim().toLowerCase())
+        .filter(Boolean);
+  const effectiveAllowlist = dbAllowlist.length ? dbAllowlist : allowlist;
+  if (effectiveAllowlist.length === 0) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -81,7 +91,7 @@ export async function requireAdmin(
     };
   }
 
-  if (!isAdminEmailAllowed(data.user.email, allowlist)) {
+  if (!isAdminEmailAllowed(data.user.email, effectiveAllowlist)) {
     return {
       ok: false,
       response: NextResponse.json(

@@ -18,11 +18,23 @@ export interface LinusOperatingSettings {
   timeZone: string;
 }
 
+export interface ScheduleSettings {
+  firstDepartureTime: string;
+  lastDepartureTime: string;
+  headwayMinutes: number;
+  timeZone: string;
+}
+
 export interface ETASettings {
   minSpeedKmh: number;
   maxSpeedKmh: number;
   staleThresholdSeconds: number;
+  averageDwellSeconds?: number;
+  trafficMultiplier?: number;
+  confidenceThresholdSeconds?: number;
 }
+
+export type ResolvedETASettings = Required<ETASettings>;
 
 export interface MapSettings {
   tileProvider: 'carto_voyager' | 'pmtiles_r2' | 'osm';
@@ -33,7 +45,11 @@ export interface FeatureFlags {
   crowdReportingEnabled: boolean;
   simulationMode: boolean;
   maintenanceMode: boolean;
+  pushNotificationsEnabled?: boolean;
+  driverAccessRequestsEnabled?: boolean;
 }
+
+export type ResolvedFeatureFlags = Required<FeatureFlags>;
 
 export interface GeofenceSettings {
   campusBounds: {
@@ -47,6 +63,7 @@ export interface GeofenceSettings {
 
 export interface LinuskuSettings {
   service: LinusOperatingSettings;
+  schedule: ScheduleSettings;
   eta: ETASettings;
   map: MapSettings;
   features: FeatureFlags;
@@ -60,14 +77,24 @@ export const DEFAULT_OPERATING_SETTINGS: LinusOperatingSettings = {
   timeZone: 'Asia/Jakarta',
 };
 
+export const DEFAULT_SCHEDULE_SETTINGS: ScheduleSettings = {
+  firstDepartureTime: '07:00',
+  lastDepartureTime: '17:00',
+  headwayMinutes: 15,
+  timeZone: 'Asia/Jakarta',
+};
+
 export const DEFAULT_ETA_SETTINGS: ETASettings = {
   minSpeedKmh: 12,
   maxSpeedKmh: 80,
   staleThresholdSeconds: 45,
+  averageDwellSeconds: 30,
+  trafficMultiplier: 1,
+  confidenceThresholdSeconds: 180,
 };
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
-  tileProvider: 'carto_voyager',
+  tileProvider: 'osm',
   fallbackToOsm: true,
 };
 
@@ -75,6 +102,8 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   crowdReportingEnabled: true,
   simulationMode: false,
   maintenanceMode: false,
+  pushNotificationsEnabled: false,
+  driverAccessRequestsEnabled: false,
 };
 
 export const DEFAULT_GEOFENCE_SETTINGS: GeofenceSettings = {
@@ -89,11 +118,42 @@ export const DEFAULT_GEOFENCE_SETTINGS: GeofenceSettings = {
 
 export const DEFAULT_LINUSKU_SETTINGS: LinuskuSettings = {
   service: DEFAULT_OPERATING_SETTINGS,
+  schedule: DEFAULT_SCHEDULE_SETTINGS,
   eta: DEFAULT_ETA_SETTINGS,
   map: DEFAULT_MAP_SETTINGS,
   features: DEFAULT_FEATURE_FLAGS,
   geofence: DEFAULT_GEOFENCE_SETTINGS,
 };
+
+function resolveEtaSettings(settings: ETASettings): ResolvedETASettings {
+  const minSpeedKmh = settings.minSpeedKmh;
+  const maxSpeedKmh = settings.maxSpeedKmh;
+  const staleThresholdSeconds = settings.staleThresholdSeconds;
+  const averageDwellSeconds = settings.averageDwellSeconds;
+  const trafficMultiplier = settings.trafficMultiplier;
+  const confidenceThresholdSeconds = settings.confidenceThresholdSeconds;
+  return {
+    minSpeedKmh: isPositiveNumber(minSpeedKmh)
+      ? minSpeedKmh
+      : DEFAULT_ETA_SETTINGS.minSpeedKmh,
+    maxSpeedKmh: isPositiveNumber(maxSpeedKmh)
+      ? maxSpeedKmh
+      : DEFAULT_ETA_SETTINGS.maxSpeedKmh,
+    staleThresholdSeconds: isPositiveNumber(staleThresholdSeconds)
+      ? staleThresholdSeconds
+      : DEFAULT_ETA_SETTINGS.staleThresholdSeconds,
+    averageDwellSeconds: isNonNegativeNumber(averageDwellSeconds)
+      ? averageDwellSeconds
+      : DEFAULT_ETA_SETTINGS.averageDwellSeconds ?? 30,
+    trafficMultiplier:
+      isPositiveNumber(trafficMultiplier) && trafficMultiplier >= 1
+        ? trafficMultiplier
+        : DEFAULT_ETA_SETTINGS.trafficMultiplier ?? 1,
+    confidenceThresholdSeconds: isPositiveNumber(confidenceThresholdSeconds)
+      ? confidenceThresholdSeconds
+      : DEFAULT_ETA_SETTINGS.confidenceThresholdSeconds ?? 180,
+  };
+}
 
 function settingsRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -104,9 +164,25 @@ function settingsRecord(value: unknown): Record<string, unknown> {
 function settingValue(
   value: Record<string, unknown>,
   camelCaseKey: string,
-  snakeCaseKey: string
+  snakeCaseKey: string,
+  isValid?: (setting: unknown) => boolean
 ): unknown {
-  return value[camelCaseKey] ?? value[snakeCaseKey];
+  const camelCaseValue = value[camelCaseKey];
+  const snakeCaseValue = value[snakeCaseKey];
+  if (!isValid || (camelCaseValue != null && isValid(camelCaseValue))) {
+    return camelCaseValue ?? snakeCaseValue;
+  }
+  if (snakeCaseValue != null && isValid(snakeCaseValue)) {
+    return snakeCaseValue;
+  }
+  return camelCaseValue ?? snakeCaseValue;
+}
+
+function isSettingTime(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value)
+  );
 }
 
 function settingTime(value: unknown, fallback: string): string {
@@ -116,10 +192,35 @@ function settingTime(value: unknown, fallback: string): string {
   return value.slice(0, 5);
 }
 
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isSupportedTimeZone(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validTimeZone(value: unknown, fallback: string): string {
+  return isSupportedTimeZone(value) ? value : fallback;
+}
+
 export function mergeLinuskuSettings(
   values: Readonly<Record<string, unknown>>
 ): LinuskuSettings {
   const service = settingsRecord(values.service);
+  const schedule = settingsRecord(values.schedule);
   const eta = settingsRecord(values.eta);
   const map = settingsRecord(values.map);
   const features = settingsRecord(values.features);
@@ -127,12 +228,54 @@ export function mergeLinuskuSettings(
   const campusBounds = settingsRecord(geofence.campusBounds ?? geofence.campus_bounds);
   const serviceDays = settingValue(service, 'serviceDays', 'service_days');
   const timeZone = service.timeZone ?? service.time_zone;
+  const firstDepartureTime = settingValue(
+    schedule,
+    'firstDepartureTime',
+    'first_departure_time',
+    isSettingTime
+  );
+  const lastDepartureTime = settingValue(
+    schedule,
+    'lastDepartureTime',
+    'last_departure_time',
+    isSettingTime
+  );
+  const headwayMinutes = settingValue(
+    schedule,
+    'headwayMinutes',
+    'headway_minutes',
+    (value) => isPositiveNumber(value) && Number.isInteger(value) && value <= 240
+  );
+  const scheduleTimeZone = settingValue(
+    schedule,
+    'timeZone',
+    'time_zone',
+    isSupportedTimeZone
+  );
   const minSpeedKmh = settingValue(eta, 'minSpeedKmh', 'min_speed_kmh');
   const maxSpeedKmh = settingValue(eta, 'maxSpeedKmh', 'max_speed_kmh');
   const staleThresholdSeconds = settingValue(
     eta,
     'staleThresholdSeconds',
     'stale_threshold_seconds'
+  );
+  const averageDwellSeconds = settingValue(
+    eta,
+    'averageDwellSeconds',
+    'average_dwell_seconds',
+    isNonNegativeNumber
+  );
+  const trafficMultiplier = settingValue(
+    eta,
+    'trafficMultiplier',
+    'traffic_multiplier',
+    (value) => isPositiveNumber(value) && value >= 1
+  );
+  const confidenceThresholdSeconds = settingValue(
+    eta,
+    'confidenceThresholdSeconds',
+    'confidence_threshold_seconds',
+    isPositiveNumber
   );
   const tileProvider = settingValue(map, 'tileProvider', 'tile_provider');
   const fallbackToOsm = settingValue(map, 'fallbackToOsm', 'fallback_to_osm');
@@ -146,6 +289,18 @@ export function mergeLinuskuSettings(
     features,
     'maintenanceMode',
     'maintenance_mode'
+  );
+  const pushNotificationsEnabled = settingValue(
+    features,
+    'pushNotificationsEnabled',
+    'push_notifications_enabled',
+    (value) => typeof value === 'boolean'
+  );
+  const driverAccessRequestsEnabled = settingValue(
+    features,
+    'driverAccessRequestsEnabled',
+    'driver_access_requests_enabled',
+    (value) => typeof value === 'boolean'
   );
   const minLat = settingValue(campusBounds, 'minLat', 'min_lat');
   const maxLat = settingValue(campusBounds, 'maxLat', 'max_lat');
@@ -165,6 +320,28 @@ export function mergeLinuskuSettings(
     new Set(serviceDays).size === serviceDays.length
       ? serviceDays as number[]
       : DEFAULT_OPERATING_SETTINGS.serviceDays;
+  let normalizedFirstDepartureTime = settingTime(
+    firstDepartureTime,
+    DEFAULT_SCHEDULE_SETTINGS.firstDepartureTime
+  );
+  let normalizedLastDepartureTime = settingTime(
+    lastDepartureTime,
+    DEFAULT_SCHEDULE_SETTINGS.lastDepartureTime
+  );
+  if (normalizedFirstDepartureTime >= normalizedLastDepartureTime) {
+    normalizedFirstDepartureTime = DEFAULT_SCHEDULE_SETTINGS.firstDepartureTime;
+    normalizedLastDepartureTime = DEFAULT_SCHEDULE_SETTINGS.lastDepartureTime;
+  }
+  const normalizedHeadwayMinutes =
+    isPositiveNumber(headwayMinutes) &&
+    Number.isInteger(headwayMinutes) &&
+    headwayMinutes <= 240
+      ? headwayMinutes
+      : DEFAULT_SCHEDULE_SETTINGS.headwayMinutes;
+  const normalizedScheduleTimeZone = validTimeZone(
+    scheduleTimeZone,
+    DEFAULT_SCHEDULE_SETTINGS.timeZone
+  );
   const validBounds =
     typeof minLat === 'number' &&
     typeof maxLat === 'number' &&
@@ -177,15 +354,10 @@ export function mergeLinuskuSettings(
     minLat < maxLat &&
     minLng < maxLng;
 
-  let validTimeZone = DEFAULT_OPERATING_SETTINGS.timeZone;
-  if (typeof timeZone === 'string') {
-    try {
-      new Intl.DateTimeFormat('en', { timeZone });
-      validTimeZone = timeZone;
-    } catch {
-      validTimeZone = DEFAULT_OPERATING_SETTINGS.timeZone;
-    }
-  }
+  const normalizedServiceTimeZone = validTimeZone(
+    timeZone,
+    DEFAULT_OPERATING_SETTINGS.timeZone
+  );
 
   return {
     service: {
@@ -198,7 +370,13 @@ export function mergeLinuskuSettings(
         settingValue(service, 'closingTime', 'closing_time'),
         DEFAULT_OPERATING_SETTINGS.closingTime
       ),
-      timeZone: validTimeZone,
+      timeZone: normalizedServiceTimeZone,
+    },
+    schedule: {
+      firstDepartureTime: normalizedFirstDepartureTime,
+      lastDepartureTime: normalizedLastDepartureTime,
+      headwayMinutes: normalizedHeadwayMinutes,
+      timeZone: normalizedScheduleTimeZone,
     },
     eta: {
       minSpeedKmh:
@@ -219,6 +397,16 @@ export function mergeLinuskuSettings(
         staleThresholdSeconds > 0
           ? staleThresholdSeconds
           : DEFAULT_ETA_SETTINGS.staleThresholdSeconds,
+      averageDwellSeconds: isNonNegativeNumber(averageDwellSeconds)
+        ? averageDwellSeconds
+        : DEFAULT_ETA_SETTINGS.averageDwellSeconds,
+      trafficMultiplier:
+        isPositiveNumber(trafficMultiplier) && trafficMultiplier >= 1
+          ? trafficMultiplier
+          : DEFAULT_ETA_SETTINGS.trafficMultiplier,
+      confidenceThresholdSeconds: isPositiveNumber(confidenceThresholdSeconds)
+        ? confidenceThresholdSeconds
+        : DEFAULT_ETA_SETTINGS.confidenceThresholdSeconds,
     },
     map: {
       tileProvider:
@@ -245,6 +433,14 @@ export function mergeLinuskuSettings(
         typeof maintenanceMode === 'boolean'
           ? maintenanceMode
           : DEFAULT_FEATURE_FLAGS.maintenanceMode,
+      pushNotificationsEnabled:
+        typeof pushNotificationsEnabled === 'boolean'
+          ? pushNotificationsEnabled
+          : DEFAULT_FEATURE_FLAGS.pushNotificationsEnabled,
+      driverAccessRequestsEnabled:
+        typeof driverAccessRequestsEnabled === 'boolean'
+          ? driverAccessRequestsEnabled
+          : DEFAULT_FEATURE_FLAGS.driverAccessRequestsEnabled,
     },
     geofence: {
       campusBounds: validBounds
@@ -264,6 +460,318 @@ export function mergeLinuskuSettings(
     },
   };
 }
+
+export type ScheduleDateInput = Date | string;
+
+interface ZonedDateParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+function getZonedDateParts(date: Date, timeZone: string): ZonedDateParts {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    calendar: 'gregory',
+    numberingSystem: 'latn',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.get('year')),
+    month: Number(values.get('month')),
+    day: Number(values.get('day')),
+    hour: Number(values.get('hour')),
+    minute: Number(values.get('minute')),
+    second: Number(values.get('second')),
+  };
+}
+
+function zonedDateTimeToDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timeZone: string
+): Date {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
+  const observed = getZonedDateParts(new Date(utcGuess), timeZone);
+  const offset =
+    Date.UTC(
+      observed.year,
+      observed.month - 1,
+      observed.day,
+      observed.hour,
+      observed.minute,
+      observed.second
+    ) - utcGuess;
+  let result = new Date(utcGuess - offset);
+  const adjusted = getZonedDateParts(result, timeZone);
+  if (
+    adjusted.year !== year ||
+    adjusted.month !== month ||
+    adjusted.day !== day ||
+    adjusted.hour !== hour ||
+    adjusted.minute !== minute ||
+    adjusted.second !== second
+  ) {
+    const adjustedOffset =
+      Date.UTC(
+        adjusted.year,
+        adjusted.month - 1,
+        adjusted.day,
+        adjusted.hour,
+        adjusted.minute,
+        adjusted.second
+      ) - result.getTime();
+    result = new Date(utcGuess - adjustedOffset);
+  }
+  return result;
+}
+
+function normalizedScheduleSettings(
+  settings: ScheduleSettings
+): ScheduleSettings {
+  let firstDepartureTime = settingTime(
+    settings.firstDepartureTime,
+    DEFAULT_SCHEDULE_SETTINGS.firstDepartureTime
+  );
+  let lastDepartureTime = settingTime(
+    settings.lastDepartureTime,
+    DEFAULT_SCHEDULE_SETTINGS.lastDepartureTime
+  );
+  if (firstDepartureTime >= lastDepartureTime) {
+    firstDepartureTime = DEFAULT_SCHEDULE_SETTINGS.firstDepartureTime;
+    lastDepartureTime = DEFAULT_SCHEDULE_SETTINGS.lastDepartureTime;
+  }
+  return {
+    firstDepartureTime,
+    lastDepartureTime,
+    headwayMinutes:
+      isPositiveNumber(settings.headwayMinutes) &&
+      Number.isInteger(settings.headwayMinutes) &&
+      settings.headwayMinutes <= 240
+        ? settings.headwayMinutes
+        : DEFAULT_SCHEDULE_SETTINGS.headwayMinutes,
+    timeZone: validTimeZone(settings.timeZone, DEFAULT_SCHEDULE_SETTINGS.timeZone),
+  };
+}
+
+function timeToMinutes(value: string): number {
+  return Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
+}
+
+function addCalendarDays(parts: ZonedDateParts, days: number): ZonedDateParts {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: parts.hour,
+    minute: parts.minute,
+    second: parts.second,
+  };
+}
+
+function parseScheduleReference(
+  reference: ScheduleDateInput,
+  timeZone: string
+): { date: Date; local: ZonedDateParts; calendarOnly: boolean } {
+  if (reference instanceof Date) {
+    if (!Number.isFinite(reference.getTime())) {
+      const fallback = new Date();
+      return {
+        date: fallback,
+        local: getZonedDateParts(fallback, timeZone),
+        calendarOnly: false,
+      };
+    }
+    return {
+      date: reference,
+      local: getZonedDateParts(reference, timeZone),
+      calendarOnly: false,
+    };
+  }
+
+  const calendarOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(reference);
+  if (calendarOnly) {
+    const local = {
+      year: Number(calendarOnly[1]),
+      month: Number(calendarOnly[2]),
+      day: Number(calendarOnly[3]),
+      hour: 0,
+      minute: 0,
+      second: 0,
+    };
+    return {
+      date: zonedDateTimeToDate(
+        local.year,
+        local.month,
+        local.day,
+        local.hour,
+        local.minute,
+        local.second,
+        timeZone
+      ),
+      local,
+      calendarOnly: true,
+    };
+  }
+
+  const localDateTime =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(reference);
+  if (localDateTime) {
+    const local = {
+      year: Number(localDateTime[1]),
+      month: Number(localDateTime[2]),
+      day: Number(localDateTime[3]),
+      hour: Number(localDateTime[4]),
+      minute: Number(localDateTime[5]),
+      second: Number(localDateTime[6] ?? 0),
+    };
+    return {
+      date: zonedDateTimeToDate(
+        local.year,
+        local.month,
+        local.day,
+        local.hour,
+        local.minute,
+        local.second,
+        timeZone
+      ),
+      local,
+      calendarOnly: false,
+    };
+  }
+
+  const parsed = new Date(reference);
+  if (Number.isFinite(parsed.getTime())) {
+    return {
+      date: parsed,
+      local: getZonedDateParts(parsed, timeZone),
+      calendarOnly: false,
+    };
+  }
+
+  const fallback = new Date();
+  return {
+    date: fallback,
+    local: getZonedDateParts(fallback, timeZone),
+    calendarOnly: false,
+  };
+}
+
+export function getNextDepartureTimes(
+  from?: ScheduleDateInput,
+  scheduleSettings?: ScheduleSettings,
+  count?: number
+): string[];
+export function getNextDepartureTimes(
+  scheduleSettings: ScheduleSettings,
+  from?: ScheduleDateInput,
+  count?: number
+): string[];
+export function getNextDepartureTimes(
+  fromOrSettings: ScheduleDateInput | ScheduleSettings = new Date(),
+  settingsOrFrom: ScheduleSettings | ScheduleDateInput = DEFAULT_SCHEDULE_SETTINGS,
+  requestedCount = 3
+): string[] {
+  const fromIsDate =
+    fromOrSettings instanceof Date || typeof fromOrSettings === 'string';
+  const from = fromIsDate
+    ? fromOrSettings
+    : settingsOrFrom instanceof Date || typeof settingsOrFrom === 'string'
+      ? settingsOrFrom
+      : new Date();
+  const scheduleSettings = fromIsDate
+    ? settingsOrFrom instanceof Date || typeof settingsOrFrom === 'string'
+      ? DEFAULT_SCHEDULE_SETTINGS
+      : settingsOrFrom
+    : fromOrSettings;
+  const normalized = normalizedScheduleSettings(scheduleSettings);
+  const requested = Math.max(
+    0,
+    Math.min(50, Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 3)
+  );
+  if (requested === 0) {
+    return [];
+  }
+
+  const reference = parseScheduleReference(from, normalized.timeZone);
+  const firstMinutes = timeToMinutes(normalized.firstDepartureTime);
+  const lastMinutes = timeToMinutes(normalized.lastDepartureTime);
+  const departures: string[] = [];
+
+  for (let dayOffset = 0; dayOffset <= 31 && departures.length < requested; dayOffset++) {
+    const day = addCalendarDays(reference.local, dayOffset);
+    for (
+      let departureMinutes = firstMinutes;
+      departureMinutes <= lastMinutes && departures.length < requested;
+      departureMinutes += normalized.headwayMinutes
+    ) {
+      const departure = zonedDateTimeToDate(
+        day.year,
+        day.month,
+        day.day,
+        Math.floor(departureMinutes / 60),
+        departureMinutes % 60,
+        0,
+        normalized.timeZone
+      );
+      if (
+        dayOffset > 0 ||
+        reference.calendarOnly ||
+        departure.getTime() >= reference.date.getTime()
+      ) {
+        departures.push(departure.toISOString());
+      }
+    }
+  }
+
+  return departures;
+}
+
+export const getNextDepartures = getNextDepartureTimes;
+export const calculateNextDepartures = getNextDepartureTimes;
+export const getUpcomingDepartureTimes = getNextDepartureTimes;
+
+export const PEAK_TRAFFIC_MULTIPLIER = 1.25;
+export const NORMAL_TRAFFIC_MULTIPLIER = 1;
+
+export function getTrafficMultiplier(
+  date: Date = new Date(),
+  scheduleSettings: ScheduleSettings = DEFAULT_SCHEDULE_SETTINGS,
+  baseMultiplier: number = DEFAULT_ETA_SETTINGS.trafficMultiplier ?? 1
+): number {
+  const normalized = normalizedScheduleSettings(scheduleSettings);
+  const local = getZonedDateParts(date, normalized.timeZone);
+  const localMinutes = local.hour * 60 + local.minute;
+  const firstMinutes = timeToMinutes(normalized.firstDepartureTime);
+  const lastMinutes = timeToMinutes(normalized.lastDepartureTime);
+  const base = isPositiveNumber(baseMultiplier) && baseMultiplier >= 1 ? baseMultiplier : 1;
+  if (localMinutes < firstMinutes || localMinutes >= lastMinutes) {
+    return base;
+  }
+  const morningPeakEnd = Math.min(lastMinutes, firstMinutes + 120);
+  const eveningPeakStart = Math.max(firstMinutes, lastMinutes - 120);
+  const isPeak =
+    (localMinutes >= firstMinutes && localMinutes < morningPeakEnd) ||
+    (localMinutes >= eveningPeakStart && localMinutes < lastMinutes);
+  return base * (isPeak ? PEAK_TRAFFIC_MULTIPLIER : NORMAL_TRAFFIC_MULTIPLIER);
+}
+
+export const calculateTrafficMultiplier = getTrafficMultiplier;
 
 export interface BusPosition {
   busId: string;
@@ -586,6 +1094,203 @@ export function estimateEtaMinutes(
   );
   const minutes = Math.round((roadDistanceKm / effectiveSpeed) * 60);
   return Math.max(minutes, 1);
+}
+
+export type HistoricalSpeedSample = number | { speedKmh: number };
+
+export interface EtaEstimateDetails {
+  minutes: number;
+  absoluteArrival: string | null;
+  distanceKm: number;
+  effectiveSpeedKmh: number;
+  confidence: number;
+}
+
+export interface EtaDetailsOptions {
+  polyline?: [number, number][];
+  etaSettings?: ETASettings;
+  now?: Date;
+  historicalSpeedKmh?: readonly HistoricalSpeedSample[];
+  historicalSpeeds?: readonly HistoricalSpeedSample[];
+  scheduleSettings?: ScheduleSettings;
+}
+
+function historicalSpeedValue(sample: HistoricalSpeedSample): number | null {
+  const speed = typeof sample === 'number' ? sample : sample.speedKmh;
+  return isPositiveNumber(speed) ? speed : null;
+}
+
+export function medianHistoricalSpeed(
+  speedKmh: readonly HistoricalSpeedSample[]
+): number | null {
+  const validSpeeds = speedKmh
+    .map(historicalSpeedValue)
+    .filter((speed): speed is number => speed !== null)
+    .sort((left, right) => left - right);
+  if (validSpeeds.length === 0) {
+    return null;
+  }
+  const middle = Math.floor(validSpeeds.length / 2);
+  if (validSpeeds.length % 2 === 1) {
+    return validSpeeds[middle];
+  }
+  return (validSpeeds[middle - 1] + validSpeeds[middle]) / 2;
+}
+
+export const calculateMedianHistoricalSpeed = medianHistoricalSpeed;
+export const calculateMedianSpeed = medianHistoricalSpeed;
+
+export function blendSpeed(
+  currentSpeedKmh: number,
+  historicalSpeedKmh: readonly HistoricalSpeedSample[] | HistoricalSpeedSample | null | undefined,
+  currentWeight = 0.7
+): number {
+  const median = Array.isArray(historicalSpeedKmh)
+    ? medianHistoricalSpeed(
+        historicalSpeedKmh as readonly HistoricalSpeedSample[]
+      )
+    : historicalSpeedKmh === null || historicalSpeedKmh === undefined
+      ? null
+      : historicalSpeedValue(historicalSpeedKmh as HistoricalSpeedSample);
+  const current = isPositiveNumber(currentSpeedKmh) ? currentSpeedKmh : null;
+  if (median === null) {
+    return current ?? 0;
+  }
+  if (current === null) {
+    return median;
+  }
+  const weight = Number.isFinite(currentWeight)
+    ? Math.max(0, Math.min(1, currentWeight))
+    : 0.7;
+  return current * weight + median * (1 - weight);
+}
+
+export const blendSpeedWithHistorical = blendSpeed;
+
+function estimateConfidence(
+  bus: Pick<BusPosition, 'lat' | 'lng' | 'speedKmh'> &
+    Partial<Pick<BusPosition, 'updatedAt'>>,
+  etaSettings: ResolvedETASettings,
+  now: Date,
+  historicalSampleCount: number,
+  distanceKm: number
+): number {
+  let freshnessConfidence = 0.7;
+  if (bus.updatedAt) {
+    const updatedAt = new Date(bus.updatedAt).getTime();
+    if (Number.isFinite(updatedAt)) {
+      const ageSeconds = Math.max(0, (now.getTime() - updatedAt) / 1000);
+      freshnessConfidence =
+        ageSeconds <= etaSettings.staleThresholdSeconds
+          ? 1
+          : Math.max(
+              0,
+              1 -
+                (ageSeconds - etaSettings.staleThresholdSeconds) /
+                  etaSettings.confidenceThresholdSeconds
+            );
+    }
+  }
+  const historyBoost = Math.min(historicalSampleCount, 5) * 0.04;
+  const distanceConfidence =
+    distanceKm <= 5
+      ? 1
+      : Math.max(0.7, 1 - (distanceKm - 5) / 15);
+  return Math.max(
+    0,
+    Math.min(1, (freshnessConfidence + historyBoost) * distanceConfidence)
+  );
+}
+
+export function estimateEtaDetails(
+  bus: Pick<BusPosition, 'lat' | 'lng' | 'speedKmh'> &
+    Partial<Pick<BusPosition, 'updatedAt'>>,
+  stop: BusStop,
+  options: EtaDetailsOptions
+): EtaEstimateDetails;
+export function estimateEtaDetails(
+  bus: Pick<BusPosition, 'lat' | 'lng' | 'speedKmh'> &
+    Partial<Pick<BusPosition, 'updatedAt'>>,
+  stop: BusStop,
+  polyline?: [number, number][],
+  etaSettings?: ETASettings,
+  now?: Date | readonly HistoricalSpeedSample[],
+  historicalSpeedKmh?: readonly HistoricalSpeedSample[],
+  scheduleSettings?: ScheduleSettings
+): EtaEstimateDetails;
+export function estimateEtaDetails(
+  bus: Pick<BusPosition, 'lat' | 'lng' | 'speedKmh'> &
+    Partial<Pick<BusPosition, 'updatedAt'>>,
+  stop: BusStop,
+  polylineOrOptions: [number, number][] | EtaDetailsOptions = ROUTE_POLYLINE,
+  positionalEtaSettings: ETASettings = DEFAULT_ETA_SETTINGS,
+  positionalNow: Date | readonly HistoricalSpeedSample[] = new Date(),
+  positionalHistoricalSpeedKmh: readonly HistoricalSpeedSample[] = [],
+  positionalScheduleSettings: ScheduleSettings = DEFAULT_SCHEDULE_SETTINGS
+): EtaEstimateDetails {
+  const options =
+    !Array.isArray(polylineOrOptions) && polylineOrOptions
+      ? polylineOrOptions
+      : undefined;
+  const polyline = options?.polyline ??
+    (Array.isArray(polylineOrOptions) ? polylineOrOptions : ROUTE_POLYLINE);
+  const etaSettings = resolveEtaSettings(
+    options?.etaSettings ?? positionalEtaSettings
+  );
+  const positionalHistory = Array.isArray(positionalNow)
+    ? (positionalNow as readonly HistoricalSpeedSample[])
+    : null;
+  const now: Date =
+    options?.now ?? (positionalHistory ? new Date() : (positionalNow as Date));
+  const historicalSpeedKmh =
+    options?.historicalSpeedKmh ??
+    options?.historicalSpeeds ??
+    (positionalHistory ?? positionalHistoricalSpeedKmh);
+  const scheduleSettings =
+    options?.scheduleSettings ?? positionalScheduleSettings;
+  const distanceKm = routeDistanceToStopKm(
+    bus.lat,
+    bus.lng,
+    stop,
+    polyline
+  );
+  const median = medianHistoricalSpeed(historicalSpeedKmh);
+  const blendedSpeed = blendSpeed(bus.speedKmh, median);
+  const boundedSpeed = Math.min(
+    Math.max(
+      blendedSpeed || etaSettings.minSpeedKmh,
+      etaSettings.minSpeedKmh
+    ),
+    etaSettings.maxSpeedKmh
+  );
+  const trafficMultiplier = getTrafficMultiplier(
+    now,
+    scheduleSettings,
+    etaSettings.trafficMultiplier
+  );
+  const effectiveSpeedKmh = boundedSpeed / trafficMultiplier;
+  const travelMinutes =
+    distanceKm > 0 ? (distanceKm / effectiveSpeedKmh) * 60 : 0;
+  const dwellMinutes =
+    distanceKm > 0 ? etaSettings.averageDwellSeconds / 60 : 0;
+  const minutes = Math.max(1, Math.ceil(travelMinutes + dwellMinutes));
+  const absoluteArrival = Number.isFinite(now.getTime())
+    ? new Date(now.getTime() + minutes * 60_000).toISOString()
+    : null;
+
+  return {
+    minutes,
+    absoluteArrival,
+    distanceKm,
+    effectiveSpeedKmh,
+    confidence: estimateConfidence(
+      bus,
+      etaSettings,
+      now,
+      historicalSpeedKmh.length,
+      distanceKm
+    ),
+  };
 }
 
 function getRouteMetrics(polyline: [number, number][]) {

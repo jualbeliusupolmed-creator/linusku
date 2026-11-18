@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
         .order('id'),
       authorization.client
         .from('bus_positions')
-        .select('bus_id, lat, lng, speed_kmh, heading, occupancy, updated_at')
+        .select('bus_id, lat, lng, speed_kmh, heading, occupancy, source_type, updated_at')
         .order('updated_at', { ascending: false }),
     ]);
 

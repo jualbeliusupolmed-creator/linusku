@@ -7,6 +7,15 @@ const supabasePublishableKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
+export function getSupabaseConfigurationError(): string | null {
+  if (supabaseUrl && supabasePublishableKey) return null;
+  if (!supabaseUrl && !supabasePublishableKey) {
+    return 'NEXT_PUBLIC_SUPABASE_URL dan kunci publik belum dikonfigurasi.';
+  }
+  if (!supabaseUrl) return 'NEXT_PUBLIC_SUPABASE_URL belum dikonfigurasi.';
+  return 'Kunci publik Supabase belum dikonfigurasi.';
+}
+
 interface ClientOptions {
   rememberSession?: boolean;
   storageKey?: string;

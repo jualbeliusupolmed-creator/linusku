@@ -62,6 +62,18 @@ async function getValidationSettings(): Promise<LinuskuSettings> {
   );
 }
 
+async function getValidStopIds(): Promise<string[]> {
+  const supabase = getSupabaseClient();
+  if (!isSupabaseConfigured || !supabase) {
+    return [];
+  }
+  const { data } = await supabase.from('stops').select('id');
+  if (!data) {
+    throw new Error('Daftar halte aktif belum dapat dimuat.');
+  }
+  return data.map((stop) => stop.id);
+}
+
 export async function POST(request: NextRequest) {
   const forwarded = request.headers.get('x-forwarded-for');
   const key = forwarded?.split(',')[0]?.trim() ?? 'local';
@@ -80,13 +92,16 @@ export async function POST(request: NextRequest) {
   const lng = Number(body?.lng);
   const occupancy = body?.occupancy as OccupancyLevel;
   const busId = String(body?.busId ?? '').trim();
+  const stopId = String(body?.stopId ?? '').trim() || null;
 
   // Fetch settings for validation
   let settings: LinuskuSettings;
   let validBusIds: string[];
+  let validStopIds: string[];
   try {
     settings = await getValidationSettings();
     validBusIds = await getValidBusIds();
+    validStopIds = stopId ? await getValidStopIds() : [];
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Kesalahan server';
     console.error('[crowd] Could not load report configuration:', message);
@@ -117,7 +132,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!isNearRouteWithSettings(lat, lng, settings)) {
+  if (!stopId && !isNearRouteWithSettings(lat, lng, settings)) {
     return NextResponse.json(
       { error: 'Lokasi harus berada dekat rute Linus.' },
       { status: 400 }
@@ -127,6 +142,13 @@ export async function POST(request: NextRequest) {
   if (!validBusIds.includes(busId)) {
     return NextResponse.json(
       { error: 'Pilih armada Linus yang valid.' },
+      { status: 400 }
+    );
+  }
+
+  if (stopId && isSupabaseConfigured && !validStopIds.includes(stopId)) {
+    return NextResponse.json(
+      { error: 'Halte yang dipilih tidak valid.' },
       { status: 400 }
     );
   }
@@ -177,6 +199,7 @@ export async function POST(request: NextRequest) {
   // Insert report (cleanup is now handled by pg_cron)
   const { error } = await supabase.from('crowd_reports').insert({
     bus_id: busId,
+    stop_id: stopId,
     lat,
     lng,
     occupancy,

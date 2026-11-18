@@ -19,6 +19,7 @@ interface CachedPayload {
   buses: BusPosition[];
   mode: 'live' | 'community' | 'simulation' | 'offline';
   cachedAt: string;
+  warnings?: string[];
 }
 
 let memoryCache: {
@@ -165,12 +166,13 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
         .order('created_at', { ascending: false })
     : { data: [], error: null };
 
-  if (crowdError || !crowdData) {
-    throw new Error(crowdError?.message ?? 'Gagal membaca laporan crowdsourcing');
-  }
+  const crowdWarning = crowdError
+    ? `Laporan crowdsourcing belum dapat dimuat: ${crowdError.message}`
+    : null;
+  const availableCrowdData = crowdData ?? [];
 
   const latestCrowdByBus = new Map<string, BusPosition>();
-  for (const row of crowdData) {
+  for (const row of availableCrowdData) {
     if (
       !row.bus_id ||
       !isInsideCampusWithSettings(row.lat, row.lng, settings) ||
@@ -209,6 +211,7 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
     buses: mergedBuses,
     mode: officialBuses.length > 0 ? 'live' : mergedBuses.length > 0 ? 'community' : 'offline',
     cachedAt: new Date(nowMs).toISOString(),
+    ...(crowdWarning ? { warnings: [crowdWarning] } : {}),
   };
 }
 

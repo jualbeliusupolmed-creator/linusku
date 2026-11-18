@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   ArrowLeft,
   Bus,
   Check,
+  ClipboardCheck,
   MapPin,
   Play,
   Save,
@@ -16,12 +17,22 @@ import {
   UserRound,
 } from 'lucide-react';
 import {
+  DEFAULT_LINUSKU_SETTINGS,
+  getNextDepartureTimes,
   OccupancyLevel,
   SourceType,
   interpolateAlongRoute,
-  isInsideCampus,
+  isInsideCampusWithSettings,
   haversineDistanceKm,
+  type LinuskuSettings,
 } from '@/data/usuRoutes';
+import {
+  DriverTrackingManager,
+  formatRelativeTime,
+  toDriverPositionPayload,
+  type DriverDeliveryState,
+  type DriverGpsSample,
+} from '@/lib/driverTracking';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 
 const MIN_PUBLISH_INTERVAL_MS = 3000;
@@ -31,6 +42,29 @@ const SIMULATION_BUS_ID = 'LINUS-01';
 
 type DriverView = 'tracking' | 'profile';
 type DriverBus = { id: string; name: string };
+type DriverRequestStatus = 'none' | 'pending' | 'approved' | 'rejected';
+
+interface DriverAccessRequest {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  notes: string | null;
+  requested_bus_id: string | null;
+  status: DriverRequestStatus;
+  created_at: string;
+  updated_at: string;
+  reviewed_at: string | null;
+}
+
+const INITIAL_DELIVERY_STATE: DriverDeliveryState = {
+  status: 'idle',
+  online: true,
+  queue: [],
+  pending: null,
+  lastAcknowledgement: null,
+  lastError: null,
+  retryAt: null,
+};
 
 interface WakeLockSentinelLike {
   release: () => Promise<void>;
@@ -38,6 +72,13 @@ interface WakeLockSentinelLike {
 
 function getOccupancy(value: unknown): OccupancyLevel {
   return value === 'low' || value === 'full' ? value : 'medium';
+}
+
+function createDriverSessionToken(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export default function DriverPage() {
@@ -57,6 +98,7 @@ export default function DriverPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [activeView, setActiveView] = useState<DriverView>('tracking');
   const [occupancy, setOccupancy] = useState<OccupancyLevel>('medium');
+  const [trackingIntervalMs, setTrackingIntervalMs] = useState(3000);
   const [isTracking, setIsTracking] = useState(false);
   const [useMockGps, setUseMockGps] = useState(!isSupabaseConfigured);
   const [wakeLockActive, setWakeLockActive] = useState(false);
@@ -68,6 +110,19 @@ export default function DriverPage() {
   const [statusMessage, setStatusMessage] = useState(
     'Siap mengirim koordinat armada ke peta LINUSKU.'
   );
+  const [settings, setSettings] = useState<LinuskuSettings>(DEFAULT_LINUSKU_SETTINGS);
+  const [deliveryState, setDeliveryState] = useState<DriverDeliveryState>(INITIAL_DELIVERY_STATE);
+  const [driverRequest, setDriverRequest] = useState<DriverAccessRequest | null>(null);
+  const [driverRequestStatus, setDriverRequestStatus] = useState<DriverRequestStatus>('none');
+  const [driverRequestForm, setDriverRequestForm] = useState({
+    fullName: '',
+    phone: '',
+    notes: '',
+    requestedBusId: '',
+  });
+  const [driverRequestSaving, setDriverRequestSaving] = useState(false);
+  const [driverRequestError, setDriverRequestError] = useState('');
+  const [preflightError, setPreflightError] = useState('');
 
   const watchIdRef = useRef<number | null>(null);
   const mockTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -78,10 +133,131 @@ export default function DriverPage() {
     at: number;
   } | null>(null);
   const occupancyRef = useRef(occupancy);
+  const trackingManagerRef = useRef<DriverTrackingManager | null>(null);
+  const driverSessionTokenRef = useRef<string | null>(null);
+  const lastSessionPingRef = useRef(0);
+  const previousSessionUserIdRef = useRef<string | null>(null);
+  const nextDeparture = useMemo(
+    () => getNextDepartureTimes(settings.schedule, new Date(), 1)[0] ?? null,
+    [settings.schedule]
+  );
 
   useEffect(() => {
     occupancyRef.current = occupancy;
   }, [occupancy]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/settings')
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json() as Promise<{ settings?: LinuskuSettings }>;
+      })
+      .then((payload) => {
+        if (active && payload?.settings) setSettings(payload.settings);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const manager = new DriverTrackingManager();
+    trackingManagerRef.current = manager;
+    const unsubscribe = manager.subscribe(setDeliveryState);
+    return () => {
+      unsubscribe();
+      manager.dispose();
+      if (trackingManagerRef.current === manager) trackingManagerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const manager = trackingManagerRef.current;
+    if (!manager) return;
+    manager.setSender(async (sample) => {
+      const supabase = getSupabaseClient({
+        rememberSession: rememberMe,
+        storageKey: DRIVER_STORAGE_KEY,
+      });
+      if (!supabase) throw new Error('Supabase belum dikonfigurasi.');
+      const { error } = await supabase
+        .from('bus_positions')
+        .upsert(toDriverPositionPayload(sample));
+      if (error) throw new Error(error.message);
+      return { serverTimestamp: new Date().toISOString() };
+    });
+  }, [assignedBus?.id, rememberMe]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !sessionUserId) return;
+    let active = true;
+    const refreshAssignment = async () => {
+      const supabase = getSupabaseClient({
+        rememberSession: rememberMe,
+        storageKey: DRIVER_STORAGE_KEY,
+      });
+      if (!supabase) return;
+      const { data, error } = await supabase
+        .from('buses')
+        .select('id, name')
+        .eq('driver_id', sessionUserId)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (!active || error) return;
+      if (data?.id) {
+        setAssignedBus({ id: data.id, name: data.name });
+        setIsDriver(true);
+      } else {
+        setAssignedBus(null);
+      }
+    };
+    void refreshAssignment();
+    const timer = window.setInterval(() => void refreshAssignment(), 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [rememberMe, sessionUserId]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !sessionUserId) return;
+    let active = true;
+    const refreshRequest = async () => {
+      const supabase = getSupabaseClient({
+        rememberSession: rememberMe,
+        storageKey: DRIVER_STORAGE_KEY,
+      });
+      if (!supabase) return;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return;
+      try {
+        const response = await fetch('/api/driver/request', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          request?: DriverAccessRequest | null;
+        };
+        if (!active) return;
+        setDriverRequest(payload.request ?? null);
+        setDriverRequestStatus(payload.request?.status ?? 'none');
+        if (payload.request?.status === 'approved') {
+          await supabase.auth.refreshSession();
+        }
+      } catch {
+        setDriverRequestError('Status permintaan driver belum dapat diperiksa.');
+      }
+    };
+    void refreshRequest();
+    const timer = window.setInterval(() => void refreshRequest(), 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [rememberMe, sessionUserId]);
 
   const requestWakeLock = useCallback(async () => {
     if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
@@ -174,16 +350,28 @@ export default function DriverPage() {
       email?: string;
       user_metadata?: Record<string, unknown>;
       app_metadata?: Record<string, unknown>;
-    } | null) => {
-      setSessionUserId(user?.id ?? null);
+    } | null    ) => {
+      const nextUserId = user?.id ?? null;
+      if (
+        previousSessionUserIdRef.current &&
+        previousSessionUserIdRef.current !== nextUserId
+      ) {
+        void trackingManagerRef.current?.clear();
+      }
+      previousSessionUserIdRef.current = nextUserId;
+      setSessionUserId(nextUserId);
       setSessionEmail(user?.email ?? null);
       const hasDriverRole = user?.app_metadata?.linusku_account_type === 'driver';
       setIsDriver(hasDriverRole);
-      setProfileName(
+      const nextProfileName =
         typeof user?.user_metadata?.full_name === 'string'
           ? user.user_metadata.full_name
-          : ''
-      );
+          : '';
+      setProfileName(nextProfileName);
+      setDriverRequestForm((current) => ({
+        ...current,
+        fullName: current.fullName || nextProfileName,
+      }));
       setOccupancy(getOccupancy(user?.user_metadata?.linusku_occupancy));
       setAssignedBus(null);
       if (!user) setActiveView('tracking');
@@ -309,6 +497,57 @@ export default function DriverPage() {
     else void signIn();
   };
 
+  const submitDriverRequest = async () => {
+    const supabase = getSupabaseClient({
+      rememberSession: rememberMe,
+      storageKey: DRIVER_STORAGE_KEY,
+    });
+    if (!supabase) {
+      setDriverRequestError('Konfigurasi Supabase diperlukan untuk mengirim permintaan.');
+      return;
+    }
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setDriverRequestError('Sesi pengguna sudah berakhir. Masuk kembali.');
+      return;
+    }
+    if (driverRequestForm.fullName.trim().length < 2) {
+      setDriverRequestError('Nama lengkap minimal 2 karakter.');
+      return;
+    }
+
+    setDriverRequestSaving(true);
+    setDriverRequestError('');
+    try {
+      const response = await fetch('/api/driver/request', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(driverRequestForm),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        request?: DriverAccessRequest;
+        error?: string;
+      } | null;
+      if (!response.ok || !payload?.request) {
+        setDriverRequestError(
+          payload?.error ?? 'Permintaan driver belum dapat dikirim.'
+        );
+        return;
+      }
+      setDriverRequest(payload.request);
+      setDriverRequestStatus(payload.request.status);
+      setStatusMessage('Permintaan akses driver sudah dikirim ke admin.');
+    } catch {
+      setDriverRequestError('Permintaan driver belum dapat dikirim.');
+    } finally {
+      setDriverRequestSaving(false);
+    }
+  };
+
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const supabase = getSupabaseClient({
@@ -386,6 +625,90 @@ export default function DriverPage() {
     if (bus) setIsDriver(true);
   };
 
+  const endDriverSession = useCallback(async () => {
+    if (!driverSessionTokenRef.current) return;
+    const supabase = getSupabaseClient({
+      rememberSession: rememberMe,
+      storageKey: DRIVER_STORAGE_KEY,
+    });
+    if (!supabase) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return;
+    try {
+      await fetch('/api/driver/session', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'end' }),
+      });
+    } finally {
+      driverSessionTokenRef.current = null;
+      lastSessionPingRef.current = 0;
+    }
+  }, [rememberMe]);
+
+  const startDriverSession = useCallback(async (busId: string) => {
+    const supabase = getSupabaseClient({
+      rememberSession: rememberMe,
+      storageKey: DRIVER_STORAGE_KEY,
+    });
+    if (!supabase) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error('Sesi driver tidak tersedia.');
+    const sessionToken = createDriverSessionToken();
+    const response = await fetch('/api/driver/session', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'start',
+        busId,
+        sessionToken,
+        deviceInfo: {
+          userAgent: navigator.userAgent,
+          online: navigator.onLine,
+        },
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    if (!response.ok) {
+      throw new Error(payload?.error ?? 'Sesi driver belum dapat dimulai.');
+    }
+    driverSessionTokenRef.current = sessionToken;
+    lastSessionPingRef.current = Date.now();
+  }, [rememberMe]);
+
+  const pingDriverSession = useCallback(async () => {
+    if (!driverSessionTokenRef.current || Date.now() - lastSessionPingRef.current < 15000) {
+      return;
+    }
+    const supabase = getSupabaseClient({
+      rememberSession: rememberMe,
+      storageKey: DRIVER_STORAGE_KEY,
+    });
+    if (!supabase) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return;
+    lastSessionPingRef.current = Date.now();
+    await fetch('/api/driver/session', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'ping' }),
+    });
+  }, [rememberMe]);
+
   const stopTracking = useCallback(() => {
     if (watchIdRef.current !== null && typeof navigator !== 'undefined') {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -397,11 +720,13 @@ export default function DriverPage() {
     }
     releaseWakeLock();
     setIsTracking(false);
-    setStatusMessage('Pengiriman GPS dihentikan.');
-  }, [releaseWakeLock]);
+    void endDriverSession();
+    setStatusMessage('Pengiriman GPS dihentikan. Data yang belum terkirim tetap tersimpan.');
+  }, [endDriverSession, releaseWakeLock]);
 
   const signOut = async () => {
     stopTracking();
+    await trackingManagerRef.current?.clear();
     const supabase = getSupabaseClient({
       rememberSession: rememberMe,
       storageKey: DRIVER_STORAGE_KEY,
@@ -421,7 +746,7 @@ export default function DriverPage() {
       setStatusMessage('Akun belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.');
       return;
     }
-    if (!isInsideCampus(lat, lng)) {
+    if (!isInsideCampusWithSettings(lat, lng, settings)) {
       setStatusMessage('Lokasi di luar batas Kampus USU dan tidak dikirim.');
       return;
     }
@@ -441,64 +766,129 @@ export default function DriverPage() {
         lng
       );
       const impliedSpeed = elapsedHours > 0 ? distanceKm / elapsedHours : 0;
-      if (impliedSpeed > 80) {
+      if (impliedSpeed > settings.eta.maxSpeedKmh) {
         setStatusMessage(
-          'Perubahan lokasi tidak wajar (>80 km/j) dan ditolak untuk anti-spoofing.'
+          `Perubahan lokasi tidak wajar (>${settings.eta.maxSpeedKmh} km/j) dan ditolak untuk anti-spoofing.`
         );
         return;
       }
     }
 
     lastPublishRef.current = { lat, lng, at: now };
-    setLastCoords({ lat, lng, speedKmh });
-
-    const supabase = getSupabaseClient({
-      rememberSession: rememberMe,
-      storageKey: DRIVER_STORAGE_KEY,
-    });
-    if (!supabase) {
+    if (!isSupabaseConfigured) {
+      setLastCoords({ lat, lng, speedKmh });
       setStatusMessage(
         'Mode Uji Lokal, koordinat diperbarui (hubungkan Supabase untuk siaran publik).'
       );
       return;
     }
 
-    const { error } = await supabase.from('bus_positions').upsert({
-      bus_id: assignedBus?.id ?? SIMULATION_BUS_ID,
+    const busId = assignedBus?.id ?? SIMULATION_BUS_ID;
+    const sample: DriverGpsSample = {
+      busId,
       lat,
       lng,
-      speed_kmh: Math.min(Math.max(speedKmh, 0), 80),
+      speedKmh: Math.min(Math.max(speedKmh, 0), settings.eta.maxSpeedKmh),
       heading,
       occupancy: occupancyRef.current,
-      source_type: sourceType,
-      updated_at: new Date(now).toISOString(),
-    });
-
-    if (error) {
-      setStatusMessage(`Gagal kirim ke Supabase: ${error.message}`);
-    } else {
+      sourceType,
+      capturedAt: now,
+    };
+    const manager = trackingManagerRef.current;
+    if (!manager) {
+      setStatusMessage('Penyimpanan GPS belum siap. Coba muat ulang halaman.');
+      return;
+    }
+    const enqueueResult = await manager.enqueue(sample);
+    if (!enqueueResult.accepted) {
       setStatusMessage(
-        `Tersiar ke server (${new Date(now).toLocaleTimeString('id-ID')})`
+        enqueueResult.error ?? 'Koordinat tidak dapat dimasukkan ke antrean pengiriman.'
       );
+      return;
+    }
+    setLastCoords({ lat, lng, speedKmh });
+    void pingDriverSession();
+    if (!manager.getSnapshot().online) {
+      setStatusMessage('Tidak ada koneksi. Koordinat tersimpan dan akan dikirim otomatis.');
+      return;
+    }
+    const flushResult = await manager.flush();
+    if (flushResult.sent > 0) {
+      setStatusMessage(
+        `Tersiar ke server (${new Date(now).toLocaleTimeString('id-ID')}).`
+      );
+    } else if (flushResult.failed > 0) {
+      setStatusMessage('Pengiriman gagal. Koordinat tersimpan dan akan dicoba kembali.');
+    } else {
+      setStatusMessage('Koordinat tersimpan untuk pengiriman.');
     }
   };
 
   const startTracking = async () => {
+    setPreflightError('');
     if (useMockGps && isSupabaseConfigured) {
-      setStatusMessage('Simulasi GPS tidak dapat disiarkan ke peta publik. Matikan simulasi untuk memakai GPS perangkat.');
+      setPreflightError(
+        'Simulasi GPS tidak dapat disiarkan ke peta publik. Matikan simulasi untuk memakai GPS perangkat.'
+      );
       return;
     }
     if (!sessionUserId && isSupabaseConfigured) {
-      setStatusMessage('Login driver diperlukan sebelum memulai pelacakan.');
+      setPreflightError('Login driver diperlukan sebelum memulai pelacakan.');
       return;
     }
     if (isSupabaseConfigured && !isDriver) {
-      setStatusMessage('Akun pengguna tidak dapat mengirim GPS. Minta admin mengubah jenis akun.');
+      setPreflightError(
+        'Akun pengguna tidak dapat mengirim GPS. Kirim permintaan akses driver melalui menu profil.'
+      );
       return;
     }
     if (isSupabaseConfigured && !assignedBus) {
-      setStatusMessage('Akun belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.');
+      setPreflightError(
+        'Akun belum ditugaskan ke armada aktif. Tunggu persetujuan admin atau penugasan armada.'
+      );
       return;
+    }
+    if (!navigator.onLine) {
+      setPreflightError('Perangkat sedang offline. Hubungkan jaringan lalu coba lagi.');
+      return;
+    }
+    const localHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (window.isSecureContext === false && !localHost) {
+      setPreflightError(
+        'GPS perangkat memerlukan HTTPS. Buka LINUSKU melalui alamat HTTPS yang aman.'
+      );
+      return;
+    }
+    if (!useMockGps && !navigator.geolocation) {
+      setPreflightError('Browser tidak mendukung Geolocation.');
+      return;
+    }
+    if (!useMockGps && navigator.permissions) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        if (permission.state === 'denied') {
+          setPreflightError(
+            'Izin lokasi ditolak. Izinkan akses lokasi untuk situs ini pada pengaturan browser.'
+          );
+          return;
+        }
+      } catch {
+        setPreflightError(
+          'Izin lokasi belum dapat diperiksa. Pastikan browser mengizinkan lokasi untuk situs ini.'
+        );
+        return;
+      }
+    }
+
+    if (isSupabaseConfigured && assignedBus) {
+      try {
+        await startDriverSession(assignedBus.id);
+      } catch (error) {
+        setPreflightError(
+          error instanceof Error ? error.message : 'Sesi driver belum dapat dimulai.'
+        );
+        return;
+      }
     }
 
     setIsTracking(true);
@@ -510,24 +900,21 @@ export default function DriverPage() {
       mockTimerRef.current = setInterval(() => {
         progress += 0.012;
         const pos = interpolateAlongRoute(progress);
-        publishPosition(pos.lat, pos.lng, 20, pos.heading, 'simulator');
-      }, 3000);
+        void publishPosition(pos.lat, pos.lng, 20, pos.heading, 'simulator');
+      }, trackingIntervalMs);
       return;
     }
 
-    if (!navigator.geolocation) {
-      setStatusMessage('Browser tidak mendukung Geolocation.');
-      setIsTracking(false);
-      await releaseWakeLock();
-      return;
-    }
-
-    setStatusMessage('Mengambil lokasi GPS perangkat...');
+    setStatusMessage(
+      settings.features.simulationMode
+        ? 'Mode simulasi admin aktif. GPS tetap dikirim, tetapi peta publik memakai data simulasi.'
+        : 'Mengambil lokasi GPS perangkat...'
+    );
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude, speed, heading } = position.coords;
         const speedKmh = speed ? Math.round(speed * 3.6) : 18;
-        publishPosition(
+        void publishPosition(
           latitude,
           longitude,
           speedKmh,
@@ -536,10 +923,14 @@ export default function DriverPage() {
         );
       },
       (err) => {
-        setStatusMessage(`Error GPS: ${err.message}`);
+        setPreflightError(`Error GPS: ${err.message}`);
         stopTracking();
       },
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+      {
+        enableHighAccuracy: trackingIntervalMs <= 5000,
+        maximumAge: trackingIntervalMs,
+        timeout: Math.max(10000, trackingIntervalMs * 2),
+      }
     );
   };
 
@@ -831,12 +1222,98 @@ export default function DriverPage() {
                       </fieldset>
                     </>
                   ) : (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-sm font-semibold text-slate-800">Jenis akun</p>
-                      <p className="mt-1 text-sm text-slate-700">Pengguna</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Hubungi admin bila akun ini perlu diubah menjadi driver.
-                      </p>
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-800">Jenis akun</p>
+                        <p className="mt-1 text-sm text-slate-700">Pengguna</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Ajukan akses driver dan pantau persetujuan admin di sini.
+                        </p>
+                      </div>
+                      {driverRequestStatus === 'pending' && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">
+                          Permintaan driver sedang ditinjau admin. Status disegarkan otomatis setiap 15 detik.
+                        </div>
+                      )}
+                      {driverRequestStatus === 'approved' && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
+                          Akses driver telah disetujui. Penugasan armada akan muncul otomatis setelah admin menetapkannya.
+                        </div>
+                      )}
+                      {driverRequestStatus === 'rejected' && (
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900" role="status">
+                          Permintaan driver ditolak. Perbarui informasi dan kirim kembali bila diperlukan.
+                        </div>
+                      )}
+                      {driverRequestError && (
+                        <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800" role="alert">
+                          {driverRequestError}
+                        </p>
+                      )}
+                      <fieldset className="space-y-3 rounded-lg border border-slate-200 p-3">
+                        <legend className="flex items-center gap-2 px-1 text-sm font-semibold text-slate-800">
+                          <ClipboardCheck className="h-4 w-4 text-emerald-700" aria-hidden="true" />
+                          Permintaan akses driver
+                        </legend>
+                        <label className="block text-sm font-semibold text-slate-700">
+                          Nama lengkap
+                          <input
+                            name="request-full-name"
+                            type="text"
+                            value={driverRequestForm.fullName}
+                            onChange={(event) => setDriverRequestForm((current) => ({ ...current, fullName: event.target.value }))}
+                            autoComplete="name"
+                            minLength={2}
+                            required
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
+                          />
+                        </label>
+                        <label className="block text-sm font-semibold text-slate-700">
+                          Nomor telepon
+                          <input
+                            name="request-phone"
+                            type="tel"
+                            value={driverRequestForm.phone}
+                            onChange={(event) => setDriverRequestForm((current) => ({ ...current, phone: event.target.value }))}
+                            autoComplete="tel"
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
+                          />
+                        </label>
+                        <label className="block text-sm font-semibold text-slate-700">
+                          ID armada yang diinginkan
+                          <input
+                            name="request-bus-id"
+                            type="text"
+                            value={driverRequestForm.requestedBusId}
+                            onChange={(event) => setDriverRequestForm((current) => ({ ...current, requestedBusId: event.target.value.toUpperCase() }))}
+                            placeholder="LINUS-01"
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
+                          />
+                        </label>
+                        <label className="block text-sm font-semibold text-slate-700">
+                          Catatan untuk admin
+                          <textarea
+                            name="request-notes"
+                            value={driverRequestForm.notes}
+                            onChange={(event) => setDriverRequestForm((current) => ({ ...current, notes: event.target.value }))}
+                            maxLength={500}
+                            rows={3}
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => void submitDriverRequest()}
+                          disabled={driverRequestSaving || driverRequestStatus === 'pending'}
+                          className="min-h-11 w-full rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {driverRequestSaving
+                            ? 'Mengirim…'
+                            : driverRequestStatus === 'none'
+                              ? 'Kirim permintaan'
+                              : 'Perbarui permintaan'}
+                        </button>
+                      </fieldset>
                     </div>
                   )}
                   <label className="block text-sm font-semibold text-slate-700">
@@ -897,7 +1374,55 @@ export default function DriverPage() {
                       Kepadatan: {occupancy === 'low' ? 'Lega' : occupancy === 'full' ? 'Penuh' : 'Sedang'}
                     </p>
                   )}
+                  {nextDeparture && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Keberangkatan berikutnya{' '}
+                      {new Intl.DateTimeFormat('id-ID', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: settings.schedule.timeZone,
+                      }).format(new Date(nextDeparture))}
+                    </p>
+                  )}
                 </div>
+                <fieldset>
+                  <legend className="text-sm font-semibold text-slate-700">
+                    Kepadatan penumpang terbaru
+                  </legend>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {([
+                      { key: 'low', label: 'Lega' },
+                      { key: 'medium', label: 'Sedang' },
+                      { key: 'full', label: 'Penuh' },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        aria-pressed={occupancy === item.key}
+                        onClick={() => setOccupancy(item.key)}
+                        className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${
+                          occupancy === item.key
+                            ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
+                            : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {occupancy === item.key && <Check className="mr-1 inline h-4 w-4" />}
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Mode pengiriman GPS
+                  <select
+                    value={trackingIntervalMs}
+                    onChange={(event) => setTrackingIntervalMs(Number(event.target.value))}
+                    className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                  >
+                    <option value={3000}>Aktif — setiap 3 detik</option>
+                    <option value={10000}>Hematan baterai — setiap 10 detik</option>
+                  </select>
+                </label>
                 {!assignedBus && (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                     Akun belum mendapat armada aktif. Minta admin menetapkan penugasan sebelum mulai GPS.
@@ -916,6 +1441,57 @@ export default function DriverPage() {
                   {isTracking ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                   {isTracking ? 'Hentikan berbagi lokasi' : 'Mulai berbagi lokasi'}
                 </button>
+                {preflightError && (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">
+                    {preflightError}
+                  </p>
+                )}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3" role="status" aria-live="polite">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-800">Status pengiriman</p>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      deliveryState.status === 'sent'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : deliveryState.status === 'offline' || deliveryState.status === 'retry'
+                          ? 'bg-amber-100 text-amber-900'
+                          : deliveryState.status === 'error'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {deliveryState.online ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-700">
+                    {deliveryState.status === 'idle'
+                      ? 'Belum ada koordinat menunggu.'
+                      : deliveryState.status === 'queued'
+                        ? 'Koordinat tersimpan dan siap dikirim.'
+                        : deliveryState.status === 'sending'
+                          ? 'Mengirim koordinat…'
+                          : deliveryState.status === 'sent'
+                            ? 'Koordinat terkonfirmasi server.'
+                            : deliveryState.status === 'retry'
+                              ? 'Pengiriman ditunda untuk dicoba kembali.'
+                              : deliveryState.status === 'offline'
+                                ? 'Koordinat tersimpan sampai perangkat kembali online.'
+                                : deliveryState.status === 'error'
+                                  ? 'Pengiriman memerlukan perhatian.'
+                                  : 'Menyiapkan pengiriman.'}
+                  </p>
+                  {deliveryState.queue.length > 0 && (
+                    <p className="mt-1 text-xs text-slate-600">
+                      {deliveryState.queue.length} armada menunggu konfirmasi server.
+                    </p>
+                  )}
+                  {deliveryState.retryAt && (
+                    <p className="mt-1 text-xs text-slate-600">
+                      Percobaan berikutnya {formatRelativeTime(deliveryState.retryAt)}.
+                    </p>
+                  )}
+                  {deliveryState.lastError && (
+                    <p className="mt-1 text-xs text-rose-700">{deliveryState.lastError}</p>
+                  )}
+                </div>
               </div>
             )}
           </div>

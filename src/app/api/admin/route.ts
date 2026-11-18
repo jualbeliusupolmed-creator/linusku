@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminEmailAllowed, requireAdmin } from '@/lib/adminAuth';
 import { getLinuskuAccountType } from '@/lib/linuskuAccountType';
+import { listAllAdminUsers } from '@/lib/supabaseAdminUsers';
 import {
   DEFAULT_LINUSKU_SETTINGS,
   mergeLinuskuSettings,
@@ -18,7 +19,6 @@ export async function GET(request: NextRequest) {
     reportsResult,
     settingsResult,
     settingsV2Result,
-    usersResult,
   ] = await Promise.all([
     authorization.client
       .from('buses')
@@ -48,35 +48,33 @@ export async function GET(request: NextRequest) {
     authorization.client
       .from('linusku_settings_v2')
       .select('key, value, updated_at')
-      .in('key', ['service', 'eta', 'map', 'features', 'geofence']),
-    authorization.client.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+      .in('key', ['service', 'schedule', 'eta', 'map', 'features', 'geofence']),
   ]);
 
-  const failedQuery = [
+  const warnings: string[] = [];
+  let adminUsers: Awaited<ReturnType<typeof listAllAdminUsers>> = [];
+  try {
+    adminUsers = await listAllAdminUsers(authorization.client);
+  } catch (error) {
+    warnings.push(
+      error instanceof Error ? error.message : 'Daftar akun belum dapat dimuat.'
+    );
+  }
+  const queryResults: Array<[string, { message: string } | null]> = [
     ['armada', busesResult.error],
     ['halte', stopsResult.error],
     ['posisi bus', positionsResult.error],
     ['laporan crowd', reportsResult.error],
-    ['akun pengguna', usersResult.error],
-  ].find(([, error]) => error);
-
-  if (failedQuery) {
-    const [resource, error] = failedQuery;
-    const detail =
-      typeof error === 'string' ? error : error?.message ?? 'kesalahan server';
-    return NextResponse.json(
-      { error: `Gagal memuat ${resource}: ${detail}` },
-      { status: 503 }
-    );
+  ];
+  for (const [resource, error] of queryResults) {
+    if (error) {
+      warnings.push(`Gagal memuat ${resource}: ${error.message}`);
+    }
   }
 
-  if (
-    settingsV2Result.error &&
-    settingsResult.error
-  ) {
-    return NextResponse.json(
-      { error: `Gagal memuat jadwal operasional: ${settingsResult.error.message}` },
-      { status: 503 }
+  if (settingsV2Result.error && settingsResult.error) {
+    warnings.push(
+      `Gagal memuat jadwal operasional: ${settingsV2Result.error.message}`
     );
   }
 
@@ -113,7 +111,7 @@ export async function GET(request: NextRequest) {
     settingsUpdatedAt = settingsResult.data.updated_at;
   }
 
-  const accounts = usersResult.data.users.map((user) => {
+  const accounts = adminUsers.map((user) => {
     const assignedBus = buses.find((bus) => bus.driver_id === user.id);
     return {
       id: user.id,
@@ -156,5 +154,6 @@ export async function GET(request: NextRequest) {
     users,
     drivers,
     loadedAt: new Date(now).toISOString(),
+    warnings,
   });
 }

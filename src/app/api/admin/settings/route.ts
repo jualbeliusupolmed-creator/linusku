@@ -6,7 +6,13 @@ import {
   type LinuskuSettings,
 } from '@/data/usuRoutes';
 
-type SettingsCategory = 'service' | 'eta' | 'map' | 'features' | 'geofence';
+type SettingsCategory =
+  | 'service'
+  | 'schedule'
+  | 'eta'
+  | 'map'
+  | 'features'
+  | 'geofence';
 
 type SettingsInput = Partial<LinuskuSettings>;
 
@@ -21,7 +27,14 @@ function isFiniteNumber(value: unknown): value is number {
 function parseSettings(value: unknown): SettingsInput | null {
   if (!isRecord(value)) return null;
   const input = value;
-  const allowedCategories = ['service', 'eta', 'map', 'features', 'geofence'];
+  const allowedCategories = [
+    'service',
+    'schedule',
+    'eta',
+    'map',
+    'features',
+    'geofence',
+  ];
   if (
     Object.keys(input).length === 0 ||
     Object.keys(input).some((key) => !allowedCategories.includes(key))
@@ -61,10 +74,56 @@ function parseSettings(value: unknown): SettingsInput | null {
     result.service = { serviceDays: serviceDays as number[], openingTime, closingTime, timeZone: validTimeZone };
   }
 
+  const schedule = input.schedule;
+  if (schedule !== undefined) {
+    if (!isRecord(schedule)) return null;
+    const {
+      firstDepartureTime,
+      lastDepartureTime,
+      headwayMinutes,
+      timeZone,
+    } = schedule;
+    let validScheduleTimeZone = 'Asia/Jakarta';
+    if (typeof timeZone === 'string') {
+      try {
+        new Intl.DateTimeFormat('en', { timeZone });
+        validScheduleTimeZone = timeZone;
+      } catch {
+        validScheduleTimeZone = 'Asia/Jakarta';
+      }
+    }
+    if (
+      typeof firstDepartureTime !== 'string' ||
+      typeof lastDepartureTime !== 'string' ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(firstDepartureTime) ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(lastDepartureTime) ||
+      firstDepartureTime >= lastDepartureTime ||
+      !isFiniteNumber(headwayMinutes) ||
+      !Number.isInteger(headwayMinutes) ||
+      headwayMinutes < 1 ||
+      headwayMinutes > 240
+    ) {
+      return null;
+    }
+    result.schedule = {
+      firstDepartureTime,
+      lastDepartureTime,
+      headwayMinutes,
+      timeZone: validScheduleTimeZone,
+    };
+  }
+
   const eta = input.eta;
   if (eta !== undefined) {
     if (!isRecord(eta)) return null;
-    const { minSpeedKmh, maxSpeedKmh, staleThresholdSeconds } = eta;
+    const {
+      minSpeedKmh,
+      maxSpeedKmh,
+      staleThresholdSeconds,
+      averageDwellSeconds,
+      trafficMultiplier,
+      confidenceThresholdSeconds,
+    } = eta;
     if (
       !isFiniteNumber(minSpeedKmh) ||
       !isFiniteNumber(maxSpeedKmh) ||
@@ -73,11 +132,28 @@ function parseSettings(value: unknown): SettingsInput | null {
       maxSpeedKmh < minSpeedKmh ||
       maxSpeedKmh > 120 ||
       staleThresholdSeconds <= 0 ||
-      staleThresholdSeconds > 3600
+      staleThresholdSeconds > 3600 ||
+      (averageDwellSeconds !== undefined &&
+        (!isFiniteNumber(averageDwellSeconds) || averageDwellSeconds < 0 || averageDwellSeconds > 600)) ||
+      (trafficMultiplier !== undefined &&
+        (!isFiniteNumber(trafficMultiplier) || trafficMultiplier < 1 || trafficMultiplier > 5)) ||
+      (confidenceThresholdSeconds !== undefined &&
+        (!isFiniteNumber(confidenceThresholdSeconds) ||
+          confidenceThresholdSeconds <= 0 ||
+          confidenceThresholdSeconds > 3600))
     ) {
       return null;
     }
-    result.eta = { minSpeedKmh, maxSpeedKmh, staleThresholdSeconds };
+    result.eta = {
+      minSpeedKmh,
+      maxSpeedKmh,
+      staleThresholdSeconds,
+      ...(averageDwellSeconds !== undefined ? { averageDwellSeconds } : {}),
+      ...(trafficMultiplier !== undefined ? { trafficMultiplier } : {}),
+      ...(confidenceThresholdSeconds !== undefined
+        ? { confidenceThresholdSeconds }
+        : {}),
+    };
   }
 
   const map = input.map;
@@ -98,15 +174,33 @@ function parseSettings(value: unknown): SettingsInput | null {
   const features = input.features;
   if (features !== undefined) {
     if (!isRecord(features)) return null;
-    const { crowdReportingEnabled, simulationMode, maintenanceMode } = features;
+    const {
+      crowdReportingEnabled,
+      simulationMode,
+      maintenanceMode,
+      pushNotificationsEnabled,
+      driverAccessRequestsEnabled,
+    } = features;
     if (
       typeof crowdReportingEnabled !== 'boolean' ||
       typeof simulationMode !== 'boolean' ||
-      typeof maintenanceMode !== 'boolean'
+      typeof maintenanceMode !== 'boolean' ||
+      (pushNotificationsEnabled !== undefined &&
+        typeof pushNotificationsEnabled !== 'boolean') ||
+      (driverAccessRequestsEnabled !== undefined &&
+        typeof driverAccessRequestsEnabled !== 'boolean')
     ) {
       return null;
     }
-    result.features = { crowdReportingEnabled, simulationMode, maintenanceMode };
+    result.features = {
+      crowdReportingEnabled,
+      simulationMode,
+      maintenanceMode,
+      ...(pushNotificationsEnabled !== undefined ? { pushNotificationsEnabled } : {}),
+      ...(driverAccessRequestsEnabled !== undefined
+        ? { driverAccessRequestsEnabled }
+        : {}),
+    };
   }
 
   const geofence = input.geofence;
@@ -156,60 +250,78 @@ export async function PUT(request: NextRequest) {
   const adminUser = authorization.user;
   const metadata = getAdminRequestMetadata(request);
 
-  const results: Record<string, unknown> = {};
-  let hasError = false;
+  const categories = Object.keys(input) as SettingsCategory[];
+  const { data: oldRows, error: oldRowsError } = await authorization.client
+    .from('linusku_settings_v2')
+    .select('key, value')
+    .in('key', categories);
+  if (oldRowsError) {
+    return NextResponse.json(
+      { error: `Pengaturan lama tidak dapat dibaca: ${oldRowsError.message}` },
+      { status: 503 }
+    );
+  }
+
+  const oldValues = new Map(
+    (oldRows ?? []).map((row) => [row.key, row.value] as const)
+  );
+  const { data: rpcResults, error: updateError } = await authorization.client.rpc(
+    'set_linusku_settings',
+    { p_values: input }
+  );
+  let results: Record<string, unknown> = rpcResults ?? {};
+
+  if (updateError) {
+    const missingFunction =
+      updateError.code === '42883' ||
+      /function.*does not exist|schema cache/i.test(updateError.message);
+    if (!missingFunction) {
+      return NextResponse.json(
+        { error: `Pengaturan belum dapat disimpan: ${updateError.message}` },
+        { status: 503 }
+      );
+    }
+    const fallbackResults: Record<string, unknown> = {};
+    let fallbackError: string | null = null;
+    for (const [category, value] of Object.entries(input)) {
+      const { data, error } = await authorization.client
+        .from('linusku_settings_v2')
+        .upsert(
+          {
+            key: category,
+            value,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' }
+        )
+        .select('value, updated_at')
+        .single();
+      if (error) {
+        fallbackError = error.message;
+        break;
+      }
+      fallbackResults[category] = data;
+    }
+    if (fallbackError) {
+      return NextResponse.json(
+        { error: `Pengaturan belum dapat disimpan: ${fallbackError}` },
+        { status: 503 }
+      );
+    }
+    results = fallbackResults;
+  }
 
   for (const [category, value] of Object.entries(input)) {
-    const cat = category as SettingsCategory;
-    if (!value) continue;
-
-    const { data: oldData, error: oldError } = await authorization.client
-      .from('linusku_settings_v2')
-      .select('value')
-      .eq('key', cat)
-      .maybeSingle();
-    if (oldError) {
-      hasError = true;
-      results[cat] = { error: oldError.message };
-      continue;
-    }
-
-    const { data, error } = await authorization.client
-      .from('linusku_settings_v2')
-      .upsert(
-        {
-          key: cat,
-          value,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'key' }
-      )
-      .select('value, updated_at')
-      .single();
-
-    if (error) {
-      hasError = true;
-      results[cat] = { error: error.message };
-      continue;
-    }
-
-    results[cat] = data;
+    const oldValue = oldValues.get(category);
     await logAdminAction(authorization.client, {
       adminId: adminUser.id,
       action: 'update_settings',
       targetTable: 'linusku_settings_v2',
-      targetId: cat,
-      oldValue: isRecord(oldData?.value) ? oldData.value : null,
+      targetId: category,
+      oldValue: isRecord(oldValue) ? oldValue : null,
       newValue: { ...value },
       ...metadata,
     });
-  }
-
-  if (hasError) {
-    return NextResponse.json(
-      { error: 'Beberapa pengaturan gagal disimpan.', details: results },
-      { status: 503 }
-    );
   }
 
   return NextResponse.json({ settings: results });
@@ -222,7 +334,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await authorization.client
     .from('linusku_settings_v2')
     .select('key, value, updated_at')
-    .in('key', ['service', 'eta', 'map', 'features', 'geofence']);
+    .in('key', ['service', 'schedule', 'eta', 'map', 'features', 'geofence']);
 
   if (error) {
     return NextResponse.json(
@@ -237,7 +349,14 @@ export async function GET(request: NextRequest) {
   );
   const result: Record<string, unknown> = {};
 
-  for (const key of ['service', 'eta', 'map', 'features', 'geofence'] as SettingsCategory[]) {
+  for (const key of [
+    'service',
+    'schedule',
+    'eta',
+    'map',
+    'features',
+    'geofence',
+  ] as SettingsCategory[]) {
     const row = settingsMap.get(key);
     result[key] = {
       value: normalized[key],

@@ -20,7 +20,7 @@ export async function GET() {
   const { data: settingsData, error: settingsError } = await supabase
     .from('linusku_settings_v2')
     .select('key, value, updated_at')
-    .in('key', ['service', 'eta', 'map', 'features', 'geofence']);
+    .in('key', ['service', 'schedule', 'eta', 'map', 'features', 'geofence']);
 
   if (!settingsError && settingsData && settingsData.length > 0) {
     const mergedSettings = mergeLinuskuSettings(

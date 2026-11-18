@@ -4,7 +4,10 @@ const ADMIN_EMAILS = [
 ];
 
 export function getAdminAllowlist(): string[] {
-  return [...ADMIN_EMAILS];
+  const configured = process.env.ADMIN_EMAILS?.split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return configured?.length ? [...new Set(configured)] : [...ADMIN_EMAILS];
 }
 
 export function isAdminEmailAllowed(

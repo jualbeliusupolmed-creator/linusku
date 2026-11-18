@@ -4,14 +4,18 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Bell,
+  BellRing,
   Bus,
   Clock,
+  Copy,
   ExternalLink,
   MapPin,
   Navigation,
   Radio,
   RefreshCw,
   Search,
+  Share2,
   ShoppingBag,
   Star,
   Users,
@@ -23,15 +27,33 @@ import {
   DEFAULT_FEATURE_FLAGS,
   DEFAULT_MAP_SETTINGS,
   DEFAULT_OPERATING_SETTINGS,
+  DEFAULT_SCHEDULE_SETTINGS,
   ETASettings,
   LinusOperatingSettings,
   LinuskuSettings,
+  ScheduleSettings,
   USU_STOPS,
+  estimateEtaDetails,
   estimateEtaMinutes,
   findNearestStop,
   getLinusOperatingStatus,
-  isInsideCampus,
+  getNextDepartureTimes,
 } from '@/data/usuRoutes';
+import {
+  askNotificationPermission,
+  copyEtaUrl,
+  generateNextDepartureNotifications,
+  getFavoriteStopIds,
+  getNotificationPermissionState,
+  isPassengerNotificationsOptedIn,
+  setPassengerNotificationsOptedIn,
+  setFavoriteStopIds as persistFavoriteStopIds,
+  shareEtaUrl,
+  toggleFavoriteStop as updateFavoriteStop,
+  type NotificationPermissionState,
+  type NextDeparture,
+} from '@/lib/passengerNotifications';
+import { getSupabaseClient } from '@/lib/supabase';
 
 const LinusMap = dynamic(() => import('@/components/LinusMap'), {
   ssr: false,
@@ -43,8 +65,8 @@ const LinusMap = dynamic(() => import('@/components/LinusMap'), {
 });
 
 const STORAGE_SELECTED_STOP_KEY = 'linusku:selectedStopId';
-const STORAGE_FAVORITE_STOPS_KEY = 'linusku:favoriteStopIds';
 const POLL_INTERVAL_MS = 4000;
+const NOTIFICATION_THRESHOLD_MINUTES = 10;
 
 const occupancyBadge: Record<
   BusPosition['occupancy'],
@@ -86,6 +108,10 @@ export default function HomePage() {
     distanceMeters: number;
   } | null>(null);
   const [locationStatus, setLocationStatus] = useState('');
+  const [currentLocation, setCurrentLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [crowdBusId, setCrowdBusId] = useState('LINUS-01');
   const [crowdOccupancy, setCrowdOccupancy] =
     useState<BusPosition['occupancy']>('medium');
@@ -98,6 +124,17 @@ export default function HomePage() {
   const [etaSettings, setEtaSettings] =
     useState<ETASettings>(DEFAULT_ETA_SETTINGS);
   const [mapSettings, setMapSettings] = useState(DEFAULT_MAP_SETTINGS);
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>(
+    DEFAULT_SCHEDULE_SETTINGS
+  );
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(
+    DEFAULT_FEATURE_FLAGS.pushNotificationsEnabled ?? false
+  );
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermissionState>('default');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState('');
+  const [shareStatus, setShareStatus] = useState('');
   const [maintenanceMode, setMaintenanceMode] = useState(
     DEFAULT_FEATURE_FLAGS.maintenanceMode
   );
@@ -183,6 +220,10 @@ export default function HomePage() {
           setServiceSettings(payload.settings.service);
           setEtaSettings(payload.settings.eta);
           setMapSettings(payload.settings.map);
+          setScheduleSettings(payload.settings.schedule);
+          setPushNotificationsEnabled(
+            payload.settings.features.pushNotificationsEnabled ?? false
+          );
           setMaintenanceMode(payload.settings.features.maintenanceMode);
           setCrowdReportingEnabled(
             payload.settings.features.crowdReportingEnabled
@@ -226,47 +267,111 @@ export default function HomePage() {
   // Muat halte terakhir & daftar halte favorit dari localStorage
   useEffect(() => {
     try {
+      const queryStop = new URLSearchParams(window.location.search).get('stop');
       const savedStop = window.localStorage.getItem(STORAGE_SELECTED_STOP_KEY);
-      if (savedStop && stops.some((s) => s.id === savedStop)) {
-        setSelectedStopId(savedStop);
+      const requestedStop = queryStop ?? savedStop;
+      if (requestedStop && stops.some((stop) => stop.id === requestedStop)) {
+        setSelectedStopId(requestedStop);
       }
-      const savedFavs = window.localStorage.getItem(STORAGE_FAVORITE_STOPS_KEY);
-      if (savedFavs) {
-        const parsed = JSON.parse(savedFavs);
-        if (Array.isArray(parsed)) {
-          setFavoriteStopIds(parsed.filter((id) => typeof id === 'string'));
-        }
-      }
+      setFavoriteStopIds(getFavoriteStopIds());
+      setNotificationPermission(getNotificationPermissionState());
+      setNotificationsEnabled(isPassengerNotificationsOptedIn());
     } catch {
-      // Ignore storage error in private mode
+      setFavoriteStopIds([]);
+      setNotificationPermission('unsupported');
     }
   }, [stops]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getSession().then(async ({ data }) => {
+      const token = data.session?.access_token;
+      if (!token || !active) return;
+      const response = await fetch('/api/passenger/preferences', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const payload = await response.json() as { favoriteStopIds?: string[] };
+      if (active && Array.isArray(payload.favoriteStopIds)) {
+        setFavoriteStopIds(payload.favoriteStopIds);
+        persistFavoriteStopIds(payload.favoriteStopIds);
+      }
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSelectStop = (stopId: string) => {
     setSelectedStopId(stopId);
     try {
       window.localStorage.setItem(STORAGE_SELECTED_STOP_KEY, stopId);
+      const url = new URL(window.location.href);
+      url.searchParams.set('stop', stopId);
+      window.history.replaceState(null, '', url);
     } catch {
-      // Ignore storage error
+      setStatusMessage('Tujuan pilihan belum dapat disimpan pada tautan halaman.');
     }
   };
 
   const toggleFavoriteStop = (stopId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setFavoriteStopIds((prev) => {
-      const next = prev.includes(stopId)
-        ? prev.filter((id) => id !== stopId)
-        : [...prev, stopId];
-      try {
-        window.localStorage.setItem(
-          STORAGE_FAVORITE_STOPS_KEY,
-          JSON.stringify(next)
-        );
-      } catch {
-        // Ignore storage error
-      }
-      return next;
-    });
+    const next = updateFavoriteStop(stopId);
+    setFavoriteStopIds(next);
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      void supabase.auth.getSession().then(({ data }) => {
+        const token = data.session?.access_token;
+        if (!token) return;
+        void fetch('/api/passenger/preferences', {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ favoriteStopIds: next }),
+        });
+      }).catch(() => undefined);
+    }
+  };
+
+  const toggleNotifications = async () => {
+    if (notificationsEnabled) {
+      setPassengerNotificationsOptedIn(false);
+      setNotificationsEnabled(false);
+      setNotificationStatus('Notifikasi keberangkatan dinonaktifkan.');
+      return;
+    }
+    const permission = await askNotificationPermission();
+    setNotificationPermission(permission);
+    if (permission !== 'granted') {
+      setNotificationStatus(
+        permission === 'denied'
+          ? 'Izin notifikasi ditolak browser.'
+          : 'Izin notifikasi belum diberikan browser.'
+      );
+      return;
+    }
+    const saved = setPassengerNotificationsOptedIn(true);
+    setNotificationsEnabled(saved);
+    setNotificationStatus(
+      saved
+        ? 'Notifikasi keberangkatan aktif untuk halte favorit.'
+        : 'Preferensi notifikasi tidak dapat disimpan di perangkat ini.'
+    );
+  };
+
+  const copySelectedEtaUrl = async () => {
+    const result = await copyEtaUrl(selectedStop.id);
+    setShareStatus(result.message);
+  };
+
+  const shareSelectedEtaUrl = async () => {
+    const result = await shareEtaUrl(selectedStop.id);
+    setShareStatus(result.message);
   };
 
   const fetchPositions = useCallback(async (showSpinner = false) => {
@@ -285,6 +390,7 @@ export default function HomePage() {
         buses?: BusPosition[];
         mode?: 'live' | 'community' | 'simulation' | 'offline';
         cachedAt?: string;
+        warnings?: string[];
         error?: string;
       };
 
@@ -297,7 +403,7 @@ export default function HomePage() {
       setLastSyncedAt(
         new Date(payload.cachedAt ?? Date.now()).toLocaleTimeString('id-ID')
       );
-      setStatusMessage('');
+      setStatusMessage(payload.warnings?.[0] ?? '');
     } catch {
       setFeedMode('offline');
       setStatusMessage('Koneksi posisi terputus. Data yang tampil mungkin sudah lama.');
@@ -347,10 +453,7 @@ export default function HomePage() {
       (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
-        if (!isInsideCampus(lat, lng)) {
-          setLocationStatus('Lokasimu berada di luar Kampus USU.');
-          return;
-        }
+        setCurrentLocation({ lat, lng });
         const nearest = findNearestStop(lat, lng, stops);
         handleSelectStop(nearest.stop.id);
         setNearestInfo({
@@ -396,6 +499,7 @@ export default function HomePage() {
               lat: position.coords.latitude,
               lng: position.coords.longitude,
               busId: crowdBusId,
+              stopId: selectedStop.id,
               occupancy: crowdOccupancy,
             }),
           });
@@ -417,21 +521,146 @@ export default function HomePage() {
     );
   };
 
+  const shareCrowdAtStop = async () => {
+    if (maintenanceMode || !crowdReportingEnabled) {
+      setCrowdStatus('Laporan komunitas sedang tidak tersedia.');
+      return;
+    }
+    if (!crowdBusId) {
+      setCrowdStatus('Belum ada armada aktif untuk laporan.');
+      return;
+    }
+    setCrowdStatus('Mengirim laporan halte…');
+    try {
+      const response = await fetch('/api/crowd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: selectedStop.lat,
+          lng: selectedStop.lng,
+          busId: crowdBusId,
+          stopId: selectedStop.id,
+          occupancy: crowdOccupancy,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        setCrowdStatus(payload?.error ?? 'Laporan halte gagal dikirim.');
+        return;
+      }
+      setCrowdStatus(`Laporan ${selectedStop.name} berhasil dikirim.`);
+      void fetchPositions(false);
+    } catch {
+      setCrowdStatus('Laporan halte tidak dapat dikirim saat ini.');
+    }
+  };
+
   const selectedStop: BusStop = useMemo(() => {
     return stops.find((s) => s.id === selectedStopId) ?? stops[0] ?? USU_STOPS[0];
   }, [selectedStopId, stops]);
+
+  const nextDeparture = useMemo(
+    () => getNextDepartureTimes(scheduleSettings, new Date(), 1)[0] ?? null,
+    [scheduleSettings]
+  );
 
   const activePolyline =
     routePolyline.length >= 2 ? routePolyline : undefined;
 
   const stopEtas = useMemo(() => {
     return buses
-      .map((bus) => ({
-        bus,
-        etaMinutes: estimateEtaMinutes(bus, selectedStop, activePolyline, etaSettings),
-      }))
+      .map((bus) => {
+        const details = estimateEtaDetails(bus, selectedStop, {
+          polyline: activePolyline,
+          etaSettings,
+          scheduleSettings,
+        });
+        return {
+          bus,
+          etaMinutes: details.minutes,
+          details,
+        };
+      })
+      .filter(({ bus }) =>
+        Date.now() - new Date(bus.updatedAt).getTime() <
+        etaSettings.staleThresholdSeconds * 1000
+      )
       .sort((a, b) => a.etaMinutes - b.etaMinutes);
-  }, [buses, selectedStop, activePolyline, etaSettings]);
+  }, [buses, selectedStop, activePolyline, etaSettings, scheduleSettings]);
+
+  const notificationDepartures = useMemo<NextDeparture[]>(() => {
+    const targetStopIds = Array.from(
+      new Set([selectedStop.id, ...favoriteStopIds])
+    );
+    return targetStopIds.flatMap((stopId) => {
+      const stop = stops.find((item) => item.id === stopId);
+      if (!stop) return [];
+      const nearest = buses
+        .map((bus) => ({
+          bus,
+          details: estimateEtaDetails(bus, stop, {
+            polyline: activePolyline,
+            etaSettings,
+            scheduleSettings,
+          }),
+        }))
+        .sort((left, right) => left.details.minutes - right.details.minutes)[0];
+      if (!nearest) return [];
+      return [{
+        stopId: stop.id,
+        stopName: stop.name,
+        busId: nearest.bus.busId,
+        busName: nearest.bus.name,
+        etaMinutes: nearest.details.minutes,
+      }];
+    });
+  }, [
+    activePolyline,
+    buses,
+    etaSettings,
+    favoriteStopIds,
+    scheduleSettings,
+    selectedStop.id,
+    stops,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pushNotificationsEnabled ||
+      !notificationsEnabled ||
+      notificationPermission !== 'granted' ||
+      notificationDepartures.length === 0
+    ) {
+      return;
+    }
+    let active = true;
+    void generateNextDepartureNotifications(notificationDepartures, {
+      thresholdMinutes: NOTIFICATION_THRESHOLD_MINUTES,
+      stopIds: favoriteStopIds.length ? favoriteStopIds : [selectedStop.id],
+      limit: 5,
+    }).then((results) => {
+      if (!active) return;
+      const sent = results.find((result) => result.status === 'sent');
+      if (sent) {
+        setNotificationStatus(
+          `Notifikasi dikirim untuk ${sent.departure?.stopName ?? selectedStop.name}.`
+        );
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    favoriteStopIds,
+    notificationDepartures,
+    notificationPermission,
+    notificationsEnabled,
+    pushNotificationsEnabled,
+    selectedStop.id,
+    selectedStop.name,
+  ]);
 
   const filteredStops = useMemo(() => {
     const q = stopQuery.trim().toLowerCase();
@@ -457,7 +686,7 @@ export default function HomePage() {
       <header className="topbar">
         <div className="topbar-inner">
           <Link href="/" className="brand" aria-label="LINUSKU, kembali ke beranda">
-            <span className="brand-mark"><Bus size={20} /></span>
+            <span className="brand-mark"><img src="/icon.svg" alt="" /></span>
             <span>
               <span className="brand-name">LINUSKU</span>
               <span className="brand-place">Universitas Sumatera Utara</span>
@@ -480,7 +709,7 @@ export default function HomePage() {
             </button>
             <span className={`live-chip focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${feedMode === 'live' ? 'is-live' : ''}`} role="status">
               <Radio size={16} />
-              <span>{feedMode === 'live' ? 'Live Kampus' : feedMode === 'community' ? 'Laporan komunitas' : feedMode === 'simulation' ? 'Mode Simulasi' : 'Data tidak tersedia'}</span>
+              <span>{!operatingStatus.isOpen ? 'Di luar jam operasional' : feedMode === 'live' ? 'Bus nyata aktif' : feedMode === 'community' ? 'Laporan mahasiswa' : feedMode === 'simulation' ? 'Simulasi bus' : 'Data tidak tersedia'}</span>
             </span>
           </div>
         </div>
@@ -489,7 +718,7 @@ export default function HomePage() {
       <div className="operations-strip">
         <div
           className={`operating-banner ${
-            operationsError || !operatingStatus.isOpen ? 'is-warning' : ''
+            operationsError || statusMessage || !operatingStatus.isOpen ? 'is-warning' : ''
           }`}
           role="status"
           aria-live="polite"
@@ -501,14 +730,16 @@ export default function HomePage() {
                 ? 'Pemeliharaan'
                 : operationsError
                   ? 'Jadwal bawaan'
-                  : operatingStatus.label}
+                  : statusMessage
+                    ? 'Peringatan data'
+                    : operatingStatus.label}
             </strong>
             <small>
               {maintenanceMode
                 ? 'Pelaporan sementara dihentikan.'
                 : operationsError
                   ? 'Online belum tersedia.'
-                  : operatingStatus.detail}
+                  : statusMessage || operatingStatus.detail}
             </small>
           </span>
         </div>
@@ -539,6 +770,9 @@ export default function HomePage() {
               mapSettings={mapSettings}
               selectedStopId={selectedStop.id}
               onSelectStop={(stop) => handleSelectStop(stop.id)}
+              onLocateMe={findNearestFromLocation}
+              isLocating={locationStatus.startsWith('Membaca')}
+              currentLocation={currentLocation}
             />
           </div>
         </section>
@@ -555,38 +789,108 @@ export default function HomePage() {
                 {serviceSettings.openingTime.replace(':', '.')}-
                 {serviceSettings.closingTime.replace(':', '.')}
               </span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void toggleNotifications()}
+                  disabled={!pushNotificationsEnabled || notificationPermission === 'unsupported'}
+                  aria-pressed={notificationsEnabled}
+                  aria-label={notificationsEnabled ? 'Matikan notifikasi halte' : 'Aktifkan notifikasi halte'}
+                  title={notificationsEnabled ? 'Matikan notifikasi halte' : 'Aktifkan notifikasi halte'}
+                  className="arrival-action"
+                >
+                  {notificationsEnabled ? <BellRing size={15} aria-hidden="true" /> : <Bell size={15} aria-hidden="true" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void copySelectedEtaUrl()}
+                  aria-label="Salin tautan halte"
+                  title="Salin tautan halte"
+                  className="arrival-action"
+                >
+                  <Copy size={15} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void shareSelectedEtaUrl()}
+                  aria-label="Bagikan halte"
+                  title="Bagikan halte"
+                  className="arrival-action"
+                >
+                  <Share2 size={15} aria-hidden="true" />
+                </button>
+              </div>
             </div>
+            {(notificationStatus || shareStatus) && (
+              <p className="mt-2 text-xs text-slate-600" role="status" aria-live="polite">
+                {[notificationStatus, shareStatus].filter(Boolean).join(' · ')}
+              </p>
+            )}
+            {operatingStatus.isOpen && nextDeparture && (
+              <p className="mt-2 text-xs text-slate-600">
+                Keberangkatan berikutnya{' '}
+                {new Intl.DateTimeFormat('id-ID', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  timeZone: scheduleSettings.timeZone,
+                }).format(new Date(nextDeparture))}
+              </p>
+            )}
+            {!operatingStatus.isOpen && (
+              <p className="service-status-note" role="status">
+                Bus tidak beroperasi sekarang. Waktu dan jarak di bawah hanya simulasi.
+              </p>
+            )}
 
             {stopEtas.length === 0 ? (
               <p className="arrival-row">
                 {feedMode === 'offline' ? 'Data posisi belum tersedia. Coba segarkan kembali.' : 'Belum ada armada Linus aktif.'}
               </p>
             ) : (
-              stopEtas.map(({ bus, etaMinutes }) => (
-                <div className="arrival-row" key={bus.busId}>
-                  <div>
-                    <div className="bus-name">
-                      <Bus size={18} />
-                      {bus.busId}
+              stopEtas.map(({ bus, etaMinutes }, index) => {
+                const isStale =
+                  Date.now() - new Date(bus.updatedAt).getTime() >
+                  etaSettings.staleThresholdSeconds * 1000;
+                return (
+                  <div className="arrival-row" key={bus.busId}>
+                    <div className="arrival-bus-info">
+                      <div className="bus-name">
+                        <img className="bus-name-mark" src="/icon.svg" alt="" aria-hidden="true" />
+                        {bus.busId}
+                        {index === 0 && <span className="nearest-badge">Terdekat</span>}
+                      </div>
+                      <span className={`occupancy-chip ${bus.occupancy}`}>
+                        <Users size={12} aria-hidden="true" />
+                        {occupancyBadge[bus.occupancy].label}
+                      </span>
+                      <small className="arrival-source">
+                        {!operatingStatus.isOpen
+                          ? 'Contoh simulasi'
+                          : bus.sourceType === 'driver'
+                            ? 'Posisi GPS driver'
+                            : bus.sourceType === 'crowd'
+                              ? 'Laporan mahasiswa'
+                              : 'Posisi simulasi'} · {new Date(bus.updatedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                      </small>
+                      {isStale && (
+                        <small className="mt-1 block font-semibold text-amber-700">Data posisi lama</small>
+                      )}
                     </div>
-                    <span className={`occupancy-chip ${bus.occupancy}`}>
-                      <Users size={13} />
-                      {occupancyBadge[bus.occupancy].label}
-                    </span>
-                    <small className="block text-slate-500">
-                      {bus.sourceType === 'driver' ? 'GPS driver' : bus.sourceType === 'crowd' ? 'Laporan mahasiswa' : 'Simulasi'} · diperbarui {new Date(bus.updatedAt).toLocaleTimeString('id-ID')}
-                    </small>
+                    <div className="eta">
+                      {etaMinutes <= 1 ? 'Dekat' : etaMinutes}
+                      <small>{etaMinutes <= 1 ? 'saat ini' : 'menit'}</small>
+                    </div>
                   </div>
-                  <div className="eta">
-                    {etaMinutes}
-                    <small>menit · estimasi<br />{Math.round(bus.speedKmh)} km/j</small>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </section>
 
           <section className="utility-panel" aria-label="Lokasi dan pelaporan penumpang">
+            <div className="utility-heading">
+              <strong>Laporkan posisi</strong>
+              <small>Pilih armada dan kepadatan</small>
+            </div>
             <button
               type="button"
               className="nearest-button"
@@ -604,7 +908,7 @@ export default function HomePage() {
 
             <div className="crowd-row">
               <label>
-                Armadaku
+                Pilih bus
                 <select
                   value={crowdBusId}
                   disabled={fleet.length === 0}
@@ -637,16 +941,32 @@ export default function HomePage() {
                 onClick={shareCrowdLocation}
                 disabled={
                   maintenanceMode ||
+                  !operatingStatus.isOpen ||
                   !crowdReportingEnabled ||
                   crowdStatus.startsWith('Membaca') ||
                   fleet.length === 0
                 }
               >
                 <MapPin size={16} />
-                Bagikan lokasi
+                {operatingStatus.isOpen ? 'Kirim lokasi saya' : 'Aktif saat bus beroperasi'}
+              </button>
+              <button
+                type="button"
+                className="crowd-button"
+                onClick={() => void shareCrowdAtStop()}
+                disabled={
+                  maintenanceMode ||
+                  !operatingStatus.isOpen ||
+                  !crowdReportingEnabled ||
+                  crowdStatus.startsWith('Mengirim') ||
+                  fleet.length === 0
+                }
+              >
+                <MapPin size={16} />
+                {operatingStatus.isOpen ? 'Laporkan kepadatan halte' : 'Pelaporan belum tersedia'}
               </button>
             </div>
-            <p className="utility-status">
+            <p className="utility-status utility-explanation">
               Saat mengirim, lokasi perangkat ini dan tingkat kepadatan yang dipilih akan dibagikan sebagai laporan posisi bus. Kirim hanya saat kamu sedang berada di Linus.
             </p>
             {crowdStatus && (
@@ -656,7 +976,7 @@ export default function HomePage() {
 
           <section className="stops-panel" id="halte" aria-labelledby="stops-title">
             <div className="stops-head">
-              <h2 id="stops-title">Halte</h2>
+              <h2 id="stops-title">Pilih halte</h2>
               <input
                 className="stop-search focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                 type="search"
@@ -674,23 +994,38 @@ export default function HomePage() {
                   ? Math.min(...buses.map((b) => estimateEtaMinutes(b, stop, activePolyline, etaSettings)))
                   : null;
                 return (
-                  <button
-                    type="button"
-                    key={stop.id}
-                    onClick={() => handleSelectStop(stop.id)}
-                    className={`stop-button active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${isSelected ? 'is-selected' : ''}`}
-                  >
-                    <span>
-                      <span className="stop-name">
-                        {isFavorite ? <Star size={13} aria-hidden="true" /> : <MapPin size={13} aria-hidden="true" />}{' '}
-                        {stop.name}
+                  <div key={stop.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-stretch">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectStop(stop.id)}
+                      className={`stop-button active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${isSelected ? 'is-selected' : ''}`}
+                    >
+                      <span>
+                        <span className="stop-name">
+                          <MapPin size={13} aria-hidden="true" /> {stop.name}
+                        </span>
+                        <span className="stop-area">{stop.area}</span>
                       </span>
-                      <span className="stop-area">{stop.area}</span>
-                    </span>
-                    {nearest !== null && (
-                      <span className="stop-nearest">~{nearest} menit</span>
-                    )}
-                  </button>
+                      {nearest !== null && (
+                        <span className="stop-nearest">
+                          {!operatingStatus.isOpen
+                            ? `${Math.max(0, nearest)} menit contoh`
+                            : nearest <= 1
+                              ? 'Sudah dekat'
+                              : `${nearest} menit`}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => toggleFavoriteStop(stop.id, event)}
+                      aria-pressed={isFavorite}
+                      aria-label={isFavorite ? `Hapus ${stop.name} dari favorit` : `Tambahkan ${stop.name} ke favorit`}
+                      className={`min-h-11 border-b border-slate-200 px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 ${isFavorite ? 'text-amber-600' : 'text-slate-400 hover:text-amber-600'}`}
+                    >
+                      <Star size={16} fill={isFavorite ? 'currentColor' : 'none'} aria-hidden="true" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -714,7 +1049,7 @@ export default function HomePage() {
 
       <nav className="bottom-nav" aria-label="Navigasi utama">
         <div className="bottom-nav-inner">
-          <a href="/" className="is-active active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><Bus size={18} />Linusku</a>
+          <a href="/" className="is-active active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><img src="/icon.svg" alt="" />Linusku</a>
           <a href="#peta" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><MapPin size={18} />Peta</a>
           <a href="#halte" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><MapPin size={18} />Halte</a>
         </div>
