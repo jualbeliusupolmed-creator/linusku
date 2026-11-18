@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import {
   OccupancyLevel,
+  SourceType,
   interpolateAlongRoute,
   isInsideCampus,
   haversineDistanceKm,
@@ -50,6 +51,7 @@ export default function DriverPage() {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
+  const [isDriver, setIsDriver] = useState(false);
   const [assignedBus, setAssignedBus] = useState<DriverBus | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -132,7 +134,10 @@ export default function DriverPage() {
     }
 
     let active = true;
-    const loadDriverBus = async (userId: string | undefined) => {
+    const loadDriverBus = async (
+      userId: string | undefined,
+      hasDriverRole: boolean
+    ) => {
       if (!userId) {
         setAssignedBus(null);
         return;
@@ -152,9 +157,15 @@ export default function DriverPage() {
       }
       if (data?.id) {
         setAssignedBus({ id: data.id, name: data.name });
+        setIsDriver(true);
       } else {
         setAssignedBus(null);
-        setStatusMessage('Akun belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.');
+        setIsDriver(hasDriverRole);
+        setStatusMessage(
+          hasDriverRole
+            ? 'Akun driver belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.'
+            : 'Profil pengguna dimuat. Hanya admin yang dapat mengubah akun menjadi driver.'
+        );
       }
     };
 
@@ -162,9 +173,12 @@ export default function DriverPage() {
       id: string;
       email?: string;
       user_metadata?: Record<string, unknown>;
+      app_metadata?: Record<string, unknown>;
     } | null) => {
       setSessionUserId(user?.id ?? null);
       setSessionEmail(user?.email ?? null);
+      const hasDriverRole = user?.app_metadata?.linusku_account_type === 'driver';
+      setIsDriver(hasDriverRole);
       setProfileName(
         typeof user?.user_metadata?.full_name === 'string'
           ? user.user_metadata.full_name
@@ -173,7 +187,7 @@ export default function DriverPage() {
       setOccupancy(getOccupancy(user?.user_metadata?.linusku_occupancy));
       setAssignedBus(null);
       if (!user) setActiveView('tracking');
-      void loadDriverBus(user?.id);
+      void loadDriverBus(user?.id, hasDriverRole);
     };
 
     supabase.auth.getSession().then(async ({ data, error }) => {
@@ -248,7 +262,7 @@ export default function DriverPage() {
       return;
     }
     if (fullName.trim().length < 2) {
-      setStatusMessage('Masukkan nama lengkap untuk membuat akun driver.');
+      setStatusMessage('Masukkan nama lengkap untuk membuat akun pengguna.');
       return;
     }
     setAuthLoading(true);
@@ -261,9 +275,9 @@ export default function DriverPage() {
     if (error) {
       setStatusMessage(`Pendaftaran gagal: ${error.message}`);
     } else if (data.session) {
-      setStatusMessage('Akun dibuat. Admin perlu menugaskan armada sebelum GPS dapat dibagikan.');
+      setStatusMessage('Akun pengguna dibuat. Hubungi admin jika akun ini perlu dijadikan driver.');
     } else {
-      setStatusMessage('Akun dibuat. Periksa email untuk verifikasi, lalu minta admin menugaskan armada.');
+      setStatusMessage('Akun dibuat. Verifikasi email; admin mengatur jenis akun dan penugasan driver.');
     }
   };
 
@@ -315,7 +329,7 @@ export default function DriverPage() {
     const { data, error } = await supabase.auth.updateUser({
       data: {
         full_name: cleanName,
-        linusku_occupancy: occupancy,
+        ...(isDriver ? { linusku_occupancy: occupancy } : {}),
       },
       ...(profilePassword ? { password: profilePassword } : {}),
     });
@@ -349,12 +363,27 @@ export default function DriverPage() {
       setStatusMessage(`Profil driver tidak dapat dimuat: ${error.message}`);
       return;
     }
+    const hasDriverRole =
+      data.user.app_metadata.linusku_account_type === 'driver';
+    setIsDriver(hasDriverRole);
     setProfileName(
       typeof data.user.user_metadata?.full_name === 'string'
         ? data.user.user_metadata.full_name
         : ''
     );
     setOccupancy(getOccupancy(data.user.user_metadata?.linusku_occupancy));
+    const { data: bus, error: busError } = await supabase
+      .from('buses')
+      .select('id, name')
+      .eq('driver_id', data.user.id)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (busError) {
+      setStatusMessage(`Penugasan bus tidak dapat dimuat: ${busError.message}`);
+      return;
+    }
+    setAssignedBus(bus ? { id: bus.id, name: bus.name } : null);
+    if (bus) setIsDriver(true);
   };
 
   const stopTracking = useCallback(() => {
@@ -386,7 +415,7 @@ export default function DriverPage() {
     lng: number,
     speedKmh: number,
     heading: number,
-    sourceType: 'driver' | 'simulator'
+    sourceType: SourceType
   ) => {
     if (isSupabaseConfigured && !assignedBus) {
       setStatusMessage('Akun belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.');
@@ -463,6 +492,10 @@ export default function DriverPage() {
       setStatusMessage('Login driver diperlukan sebelum memulai pelacakan.');
       return;
     }
+    if (isSupabaseConfigured && !isDriver) {
+      setStatusMessage('Akun pengguna tidak dapat mengirim GPS. Minta admin mengubah jenis akun.');
+      return;
+    }
     if (isSupabaseConfigured && !assignedBus) {
       setStatusMessage('Akun belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.');
       return;
@@ -532,7 +565,9 @@ export default function DriverPage() {
                 <Bus className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-lg font-bold">Mode Tracker Driver</h1>
+                <h1 className="text-lg font-bold">
+                  {sessionEmail && !isDriver ? 'Profil LINUSKU' : 'Mode Tracker Driver'}
+                </h1>
                 <p className="text-xs text-slate-500">
                   {isSupabaseConfigured
                     ? 'Terhubung ke Supabase Auth & RLS'
@@ -579,12 +614,15 @@ export default function DriverPage() {
               <div
                 className="mt-3 grid grid-cols-2 gap-2"
                 role="tablist"
-                aria-label="Menu driver"
+                aria-label={isDriver ? 'Menu driver' : 'Menu profil'}
               >
-                {([
-                  { id: 'tracking', label: 'Pelacakan', icon: Bus },
-                  { id: 'profile', label: 'Profil saya', icon: UserRound },
-                ] as const).map((item) => {
+                {(isDriver
+                  ? [
+                      { id: 'tracking' as const, label: 'Pelacakan', icon: Bus },
+                      { id: 'profile' as const, label: 'Profil saya', icon: UserRound },
+                    ]
+                  : [{ id: 'profile' as const, label: 'Profil saya', icon: UserRound }]
+                ).map((item) => {
                   const Icon = item.icon;
                   return (
                     <button
@@ -635,10 +673,10 @@ export default function DriverPage() {
                 <div>
                   <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
                     <ShieldCheck className="h-5 w-5 text-emerald-700" />
-                    {authMode === 'signup' ? 'Daftar akun driver' : 'Masuk sebagai driver'}
+                    {authMode === 'signup' ? 'Daftar akun LINUSKU' : 'Masuk ke LINUSKU'}
                   </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Armada dan status penumpang tersedia setelah masuk.
+                    Jenis akun dan akses driver hanya dapat diatur admin.
                   </p>
                 </div>
                 {authMode === 'signup' && (
@@ -698,7 +736,7 @@ export default function DriverPage() {
                   {authLoading
                     ? 'Memverifikasi…'
                     : authMode === 'signup'
-                      ? 'Buat akun driver'
+                      ? 'Buat akun'
                       : 'Masuk'}
                 </button>
                 {authMode === 'signin' && (
@@ -717,16 +755,16 @@ export default function DriverPage() {
                   disabled={authLoading}
                   className="min-h-10 w-full rounded-lg px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-50"
                 >
-                  {authMode === 'signin' ? 'Daftar driver baru' : 'Sudah punya akun? Masuk'}
+                  {authMode === 'signin' ? 'Buat akun pengguna' : 'Sudah punya akun? Masuk'}
                 </button>
               </form>
-            ) : !isSupabaseConfigured || activeView === 'profile' ? (
+            ) : !isSupabaseConfigured || activeView === 'profile' || !isDriver ? (
               isSupabaseConfigured ? (
                 <form onSubmit={saveProfile} className="space-y-4">
                   <div>
                     <h2 className="text-lg font-bold text-slate-900">Profil pribadi</h2>
                     <p className="mt-1 text-sm text-slate-600">
-                      Perbarui identitas dan status penumpang. Penugasan armada dikelola admin.
+                      Perbarui data pribadi. Jenis akun dan penugasan armada hanya dapat diatur admin.
                     </p>
                   </div>
                   <label className="block text-sm font-semibold text-slate-700">
@@ -751,44 +789,56 @@ export default function DriverPage() {
                       className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-base text-slate-600"
                     />
                   </label>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-sm font-semibold text-slate-800">Armada ditugaskan</p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      {assignedBus
-                        ? `${assignedBus.name} (${assignedBus.id})`
-                        : 'Belum ada armada aktif'}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Hubungi admin untuk mengubah penugasan.
-                    </p>
-                  </div>
-                  <fieldset>
-                    <legend className="text-sm font-semibold text-slate-700">
-                      Status kepadatan penumpang
-                    </legend>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      {([
-                        { key: 'low', label: 'Lega' },
-                        { key: 'medium', label: 'Sedang' },
-                        { key: 'full', label: 'Penuh' },
-                      ] as const).map((item) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          aria-pressed={occupancy === item.key}
-                          onClick={() => setOccupancy(item.key)}
-                          className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${
-                            occupancy === item.key
-                              ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
-                              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          {occupancy === item.key && <Check className="mr-1 inline h-4 w-4" />}
-                          {item.label}
-                        </button>
-                      ))}
+                  {isDriver ? (
+                    <>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-800">Armada ditugaskan</p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          {assignedBus
+                            ? `${assignedBus.name} (${assignedBus.id})`
+                            : 'Belum ada armada aktif'}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Hubungi admin untuk mengubah penugasan.
+                        </p>
+                      </div>
+                      <fieldset>
+                        <legend className="text-sm font-semibold text-slate-700">
+                          Status kepadatan penumpang
+                        </legend>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          {([
+                            { key: 'low', label: 'Lega' },
+                            { key: 'medium', label: 'Sedang' },
+                            { key: 'full', label: 'Penuh' },
+                          ] as const).map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              aria-pressed={occupancy === item.key}
+                              onClick={() => setOccupancy(item.key)}
+                              className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${
+                                occupancy === item.key
+                                  ? 'border-emerald-700 bg-emerald-50 text-emerald-800'
+                                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              {occupancy === item.key && <Check className="mr-1 inline h-4 w-4" />}
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </fieldset>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-sm font-semibold text-slate-800">Jenis akun</p>
+                      <p className="mt-1 text-sm text-slate-700">Pengguna</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Hubungi admin bila akun ini perlu diubah menjadi driver.
+                      </p>
                     </div>
-                  </fieldset>
+                  )}
                   <label className="block text-sm font-semibold text-slate-700">
                     Password baru
                     <input

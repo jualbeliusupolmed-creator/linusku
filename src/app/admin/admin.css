@@ -169,6 +169,46 @@
   line-height: 1.55;
 }
 
+.admin-account-switch {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.admin-account-switch button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  border: var(--rule-hair) solid var(--color-rule);
+  background: transparent;
+  padding: var(--space-xs) var(--space-md);
+  color: var(--color-ink-2);
+  font: 600 var(--text-sm)/1.2 var(--font-body);
+  cursor: pointer;
+}
+
+.admin-account-switch button:hover {
+  background: var(--color-paper-2);
+}
+
+.admin-account-switch button.is-selected {
+  border-color: var(--color-admin-accent);
+  color: var(--color-admin-accent);
+}
+
+.admin-account-switch button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.admin-account-switch span {
+  min-width: 1.5rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+
 .admin-workspace {
   min-width: 0;
   border: var(--rule-bar) solid var(--color-ink);
@@ -500,6 +540,23 @@
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.admin-settings-group {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+  border: 0;
+  border-top: var(--rule-hair) solid var(--color-rule);
+  padding: var(--space-md) 0 0;
+}
+
+.admin-settings-group legend {
+  padding-right: var(--space-sm);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 800;
 }
 
 .admin-day-fieldset legend {

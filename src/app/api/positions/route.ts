@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
 import {
   BusPosition,
+  DEFAULT_LINUSKU_SETTINGS,
   interpolateAlongRoute,
-  isInsideCampus,
+  isInsideCampusWithSettings,
+  mergeLinuskuSettings,
 } from '@/data/usuRoutes';
 import { getCampusRoadPolyline } from '@/lib/campusRoute';
 import { getCrowdPositions } from '@/lib/crowdReports';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 import {
   getSupabaseAdminClient,
-  isSupabaseAdminConfigured,
 } from '@/lib/supabaseServer';
 
 const CACHE_TTL_MS = 3000;
-const ACTIVE_WINDOW_MS = 45000;
 
 interface CachedPayload {
   buses: BusPosition[];
@@ -95,12 +95,41 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
     };
   }
 
-  const cutoffIso = new Date(nowMs - ACTIVE_WINDOW_MS).toISOString();
+  const { data: settingsRows, error: settingsError } = await supabase
+    .from('linusku_settings_v2')
+    .select('key, value')
+    .in('key', ['eta', 'features']);
+  if (
+    settingsError &&
+    settingsError.code !== 'PGRST205' &&
+    settingsError.code !== '42P01'
+  ) {
+    throw new Error(`Gagal membaca konfigurasi posisi: ${settingsError.message}`);
+  }
+  const settings = !settingsError && settingsRows?.length
+    ? mergeLinuskuSettings(
+        Object.fromEntries(settingsRows.map((row) => [row.key, row.value]))
+      )
+    : DEFAULT_LINUSKU_SETTINGS;
+
+  if (settings.features.simulationMode) {
+    const { points } = await getCampusRoadPolyline();
+    return {
+      buses: buildSimulatedBuses(nowMs, points),
+      mode: 'simulation',
+      cachedAt: new Date(nowMs).toISOString(),
+    };
+  }
+
+  const cutoffIso = new Date(
+    nowMs - settings.eta.staleThresholdSeconds * 1000
+  ).toISOString();
   const { data, error } = await supabase
     .from('bus_positions')
     .select(
       'bus_id, lat, lng, speed_kmh, heading, occupancy, source_type, updated_at'
     )
+    .eq('bus_is_active', true)
     .gte('updated_at', cutoffIso)
     .order('updated_at', { ascending: false });
 
@@ -110,7 +139,9 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
 
   const officialBuses: BusPosition[] = data
     .filter(
-      (row) => row.source_type === 'driver' && isInsideCampus(row.lat, row.lng)
+      (row) =>
+        row.source_type === 'driver' &&
+        isInsideCampusWithSettings(row.lat, row.lng, settings)
     )
     .map((row) => ({
       busId: row.bus_id,
@@ -125,7 +156,7 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
     }));
 
   const adminSupabase = getSupabaseAdminClient();
-  const { data: crowdData, error: crowdError } = adminSupabase
+  const { data: crowdData, error: crowdError } = settings.features.crowdReportingEnabled && adminSupabase
     ? await adminSupabase
         .from('crowd_reports')
         .select('bus_id, lat, lng, occupancy, created_at')
@@ -142,7 +173,7 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
   for (const row of crowdData) {
     if (
       !row.bus_id ||
-      !isInsideCampus(row.lat, row.lng) ||
+      !isInsideCampusWithSettings(row.lat, row.lng, settings) ||
       latestCrowdByBus.has(row.bus_id)
     ) {
       continue;
@@ -213,6 +244,10 @@ export async function GET() {
       },
     });
   } catch (err) {
+    console.error(
+      '[positions] Could not load current bus positions:',
+      err instanceof Error ? err.message : err
+    );
     if (memoryCache) {
       return NextResponse.json(memoryCache.data, {
         headers: {

@@ -17,6 +17,10 @@ import { Globe, Map as MapIcon } from 'lucide-react';
 import {
   BusPosition,
   BusStop,
+  DEFAULT_ETA_SETTINGS,
+  DEFAULT_MAP_SETTINGS,
+  ETASettings,
+  MapSettings,
   ROUTE_POLYLINE,
   USU_CENTER,
   USU_MAP_BOUNDS,
@@ -30,6 +34,8 @@ interface LinusMapProps {
   routePolyline?: [number, number][];
   selectedStopId: string | null;
   onSelectStop: (stop: BusStop) => void;
+  etaSettings?: ETASettings;
+  mapSettings?: MapSettings;
 }
 
 type MapMode = 'city' | 'satellite';
@@ -137,6 +143,8 @@ export default function LinusMap({
   routePolyline = ROUTE_POLYLINE,
   selectedStopId,
   onSelectStop,
+  etaSettings = DEFAULT_ETA_SETTINGS,
+  mapSettings = DEFAULT_MAP_SETTINGS,
 }: LinusMapProps) {
   const [mapMode, setMapMode] = useState<MapMode>('city');
   const [useFallbackOsm, setUseFallbackOsm] = useState(false);
@@ -152,6 +160,10 @@ export default function LinusMap({
     }
   }, []);
 
+  useEffect(() => {
+    setUseFallbackOsm(false);
+  }, [mapSettings.tileProvider, mapSettings.fallbackToOsm]);
+
   const handleChangeMode = (mode: MapMode) => {
     setMapMode(mode);
     try {
@@ -161,7 +173,13 @@ export default function LinusMap({
     }
   };
 
-  const cityTileUrl = useFallbackOsm ? FALLBACK_OSM_URL : CITY_TILE_URL;
+  const configuredTileUrl =
+    mapSettings.tileProvider === 'osm'
+      ? FALLBACK_OSM_URL
+      : mapSettings.tileProvider === 'pmtiles_r2'
+        ? process.env.NEXT_PUBLIC_MAP_TILE_URL?.trim() || FALLBACK_OSM_URL
+        : CITY_TILE_URL;
+  const cityTileUrl = useFallbackOsm ? FALLBACK_OSM_URL : configuredTileUrl;
 
   return (
     <div className="relative h-full w-full">
@@ -206,7 +224,7 @@ export default function LinusMap({
             maxZoom={18}
             eventHandlers={{
               tileerror: () => {
-                if (!useFallbackOsm) {
+                if (mapSettings.fallbackToOsm && !useFallbackOsm) {
                   setUseFallbackOsm(true);
                 }
               },
@@ -255,7 +273,9 @@ export default function LinusMap({
           const isSelected = stop.id === selectedStopId;
           const nearestEta = buses.length
             ? Math.min(
-                ...buses.map((b) => estimateEtaMinutes(b, stop, routePolyline))
+                ...buses.map((b) =>
+                  estimateEtaMinutes(b, stop, routePolyline, etaSettings)
+                )
               )
             : null;
 

@@ -19,8 +19,13 @@ import {
 import {
   BusPosition,
   BusStop,
+  DEFAULT_ETA_SETTINGS,
+  DEFAULT_FEATURE_FLAGS,
+  DEFAULT_MAP_SETTINGS,
   DEFAULT_OPERATING_SETTINGS,
+  ETASettings,
   LinusOperatingSettings,
+  LinuskuSettings,
   USU_STOPS,
   estimateEtaMinutes,
   findNearestStop,
@@ -90,6 +95,15 @@ export default function HomePage() {
   const [fleetError, setFleetError] = useState('');
   const [serviceSettings, setServiceSettings] =
     useState<LinusOperatingSettings>(DEFAULT_OPERATING_SETTINGS);
+  const [etaSettings, setEtaSettings] =
+    useState<ETASettings>(DEFAULT_ETA_SETTINGS);
+  const [mapSettings, setMapSettings] = useState(DEFAULT_MAP_SETTINGS);
+  const [maintenanceMode, setMaintenanceMode] = useState(
+    DEFAULT_FEATURE_FLAGS.maintenanceMode
+  );
+  const [crowdReportingEnabled, setCrowdReportingEnabled] = useState(
+    DEFAULT_FEATURE_FLAGS.crowdReportingEnabled
+  );
   const [operatingStatus, setOperatingStatus] = useState(
     getLinusOperatingStatus()
   );
@@ -159,14 +173,20 @@ export default function HomePage() {
       try {
         const response = await fetch('/api/settings');
         const payload = (await response.json()) as {
-          settings?: LinusOperatingSettings;
+          settings?: LinuskuSettings;
           error?: string;
         };
         if (!response.ok || !payload.settings) {
           throw new Error(payload.error ?? 'Jadwal belum tersedia.');
         }
         if (active) {
-          setServiceSettings(payload.settings);
+          setServiceSettings(payload.settings.service);
+          setEtaSettings(payload.settings.eta);
+          setMapSettings(payload.settings.map);
+          setMaintenanceMode(payload.settings.features.maintenanceMode);
+          setCrowdReportingEnabled(
+            payload.settings.features.crowdReportingEnabled
+          );
           setSettingsError('');
         }
       } catch {
@@ -349,6 +369,14 @@ export default function HomePage() {
   };
 
   const shareCrowdLocation = () => {
+    if (maintenanceMode || !crowdReportingEnabled) {
+      setCrowdStatus(
+        maintenanceMode
+          ? 'Laporan sementara dihentikan selama pemeliharaan.'
+          : 'Fitur laporan mahasiswa sedang dinonaktifkan.'
+      );
+      return;
+    }
     if (!crowdBusId) {
       setCrowdStatus('Belum ada armada aktif untuk laporan.');
       return;
@@ -400,10 +428,10 @@ export default function HomePage() {
     return buses
       .map((bus) => ({
         bus,
-        etaMinutes: estimateEtaMinutes(bus, selectedStop, activePolyline),
+        etaMinutes: estimateEtaMinutes(bus, selectedStop, activePolyline, etaSettings),
       }))
       .sort((a, b) => a.etaMinutes - b.etaMinutes);
-  }, [buses, selectedStop, activePolyline]);
+  }, [buses, selectedStop, activePolyline, etaSettings]);
 
   const filteredStops = useMemo(() => {
     const q = stopQuery.trim().toLowerCase();
@@ -469,10 +497,18 @@ export default function HomePage() {
           <Clock size={16} aria-hidden="true" />
           <span>
             <strong>
-              {operationsError ? 'Jadwal bawaan' : operatingStatus.label}
+              {maintenanceMode
+                ? 'Pemeliharaan'
+                : operationsError
+                  ? 'Jadwal bawaan'
+                  : operatingStatus.label}
             </strong>
             <small>
-              {operationsError ? 'Online belum tersedia.' : operatingStatus.detail}
+              {maintenanceMode
+                ? 'Pelaporan sementara dihentikan.'
+                : operationsError
+                  ? 'Online belum tersedia.'
+                  : operatingStatus.detail}
             </small>
           </span>
         </div>
@@ -499,6 +535,8 @@ export default function HomePage() {
               buses={buses}
               stops={stops}
               routePolyline={activePolyline}
+              etaSettings={etaSettings}
+              mapSettings={mapSettings}
               selectedStopId={selectedStop.id}
               onSelectStop={(stop) => handleSelectStop(stop.id)}
             />
@@ -597,7 +635,12 @@ export default function HomePage() {
                 type="button"
                 className="crowd-button"
                 onClick={shareCrowdLocation}
-                disabled={crowdStatus.startsWith('Membaca') || fleet.length === 0}
+                disabled={
+                  maintenanceMode ||
+                  !crowdReportingEnabled ||
+                  crowdStatus.startsWith('Membaca') ||
+                  fleet.length === 0
+                }
               >
                 <MapPin size={16} />
                 Bagikan lokasi
@@ -628,7 +671,7 @@ export default function HomePage() {
                 const isSelected = stop.id === selectedStop.id;
                 const isFavorite = favoriteStopIds.includes(stop.id);
                 const nearest = buses.length
-                  ? Math.min(...buses.map((b) => estimateEtaMinutes(b, stop, activePolyline)))
+                  ? Math.min(...buses.map((b) => estimateEtaMinutes(b, stop, activePolyline, etaSettings)))
                   : null;
                 return (
                   <button

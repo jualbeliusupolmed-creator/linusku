@@ -8,10 +8,12 @@ import { getAdminAllowlist, isAdminEmailAllowed } from './adminAllowlist';
 
 export { getAdminAllowlist, isAdminEmailAllowed } from './adminAllowlist';
 
+export type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+
 export type AdminAuthorization =
   | {
       ok: true;
-      client: NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+      client: AdminClient;
       user: User;
     }
   | {

@@ -16,10 +16,16 @@ import {
   Users,
 } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
+import {
+  DEFAULT_ETA_SETTINGS,
+  DEFAULT_FEATURE_FLAGS,
+  DEFAULT_GEOFENCE_SETTINGS,
+  DEFAULT_MAP_SETTINGS,
+} from '@/data/usuRoutes';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 import './admin.css';
 
-type AdminTab = 'overview' | 'fleet' | 'drivers' | 'stops' | 'reports' | 'operations';
+type AdminTab = 'overview' | 'fleet' | 'drivers' | 'stops' | 'reports' | 'operations' | 'audit' | 'history';
 type Occupancy = 'low' | 'medium' | 'full';
 
 interface AdminBus {
@@ -70,14 +76,41 @@ interface AdminUser {
   bannedUntil: string | null;
   assignedBusId: string | null;
   isAdmin: boolean;
+  isDriver: boolean;
   provider: string;
 }
 
 interface AdminSettings {
-  service_days: number[];
-  opening_time: string;
-  closing_time: string;
-  updated_at: string;
+  service: {
+    serviceDays: number[];
+    openingTime: string;
+    closingTime: string;
+    timeZone: string;
+  };
+  eta?: {
+    minSpeedKmh: number;
+    maxSpeedKmh: number;
+    staleThresholdSeconds: number;
+  };
+  map?: {
+    tileProvider: 'carto_voyager' | 'pmtiles_r2' | 'osm';
+    fallbackToOsm: boolean;
+  };
+  features?: {
+    crowdReportingEnabled: boolean;
+    simulationMode: boolean;
+    maintenanceMode: boolean;
+  };
+  geofence?: {
+    campusBounds: {
+      minLat: number;
+      maxLat: number;
+      minLng: number;
+      maxLng: number;
+    };
+    maxDistanceFromRouteKm: number;
+  };
+  updatedAt?: string;
 }
 
 interface AdminData {
@@ -87,8 +120,50 @@ interface AdminData {
   reports: AdminReport[];
   reportCount24h: number;
   settings: AdminSettings;
+  settingsSource?: string;
+  settingsUpdatedAt?: string;
   users: AdminUser[];
+  drivers: AdminUser[];
   loadedAt: string;
+}
+
+interface AuditLog {
+  id: number;
+  admin_id: string;
+  action: string;
+  target_table: string;
+  target_id: string | null;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+interface AuditLogResponse {
+  logs: AuditLog[];
+  totalCount: number;
+  limit: number;
+  offset: number;
+}
+
+interface PositionHistory {
+  id: number;
+  bus_id: string;
+  lat: number;
+  lng: number;
+  speed_kmh: number;
+  heading: number;
+  occupancy: Occupancy;
+  source_type: string;
+  recorded_at: string;
+}
+
+interface PositionHistoryResponse {
+  history: PositionHistory[];
+  totalCount: number;
+  limit: number;
+  offset: number;
 }
 
 interface BusForm {
@@ -120,10 +195,12 @@ interface DriverForm {
 const TABS: Array<{ id: AdminTab; label: string; icon: typeof Activity }> = [
   { id: 'overview', label: 'Ikhtisar', icon: Activity },
   { id: 'fleet', label: 'Armada', icon: Bus },
-  { id: 'drivers', label: 'Pengguna dan driver', icon: Users },
+  { id: 'drivers', label: 'Akun', icon: Users },
   { id: 'stops', label: 'Halte', icon: MapPin },
   { id: 'reports', label: 'Laporan crowd', icon: FileText },
   { id: 'operations', label: 'Jam dan rute', icon: Clock3 },
+  { id: 'audit', label: 'Audit Log', icon: FileText },
+  { id: 'history', label: 'Riwayat GPS', icon: Clock3 },
 ];
 
 const DAYS = [
@@ -204,6 +281,7 @@ export default function AdminPage() {
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [accountList, setAccountList] = useState<'users' | 'drivers'>('users');
   const [now, setNow] = useState(Date.now());
   const [lastPositionCheck, setLastPositionCheck] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
@@ -213,6 +291,7 @@ export default function AdminPage() {
   const [busForm, setBusForm] = useState<BusForm>(EMPTY_BUS_FORM);
   const [driverEditorOpen, setDriverEditorOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<DriverForm | null>(null);
+  const [editingAccountType, setEditingAccountType] = useState<'user' | 'driver'>('driver');
   const [newDriver, setNewDriver] = useState({ email: '', fullName: '', password: '' });
   const [stopEditorOpen, setStopEditorOpen] = useState(false);
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
@@ -220,6 +299,39 @@ export default function AdminPage() {
   const [serviceDays, setServiceDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [openingTime, setOpeningTime] = useState('07:00');
   const [closingTime, setClosingTime] = useState('17:00');
+  const [etaSettings, setEtaSettings] = useState(DEFAULT_ETA_SETTINGS);
+  const [mapSettings, setMapSettings] = useState(DEFAULT_MAP_SETTINGS);
+  const [featureFlags, setFeatureFlags] = useState(DEFAULT_FEATURE_FLAGS);
+  const [geofenceSettings, setGeofenceSettings] = useState(DEFAULT_GEOFENCE_SETTINGS);
+
+  // Audit log state
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState('');
+  const [auditTotalCount, setAuditTotalCount] = useState(0);
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [auditLimit] = useState(50);
+  const [auditFilters, setAuditFilters] = useState({
+    action: '',
+    targetTable: '',
+    targetId: '',
+    adminId: '',
+    since: '',
+  });
+
+  // History state
+  const [positionHistory, setPositionHistory] = useState<PositionHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyLimit] = useState(100);
+  const [historyFilters, setHistoryFilters] = useState({
+    busId: '',
+    sourceType: '',
+    since: '',
+    until: '',
+  });
 
   const requestAdmin = useCallback(
     async <T,>(url: string, init: RequestInit = {}): Promise<T> => {
@@ -312,9 +424,15 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!data?.settings) return;
-    setServiceDays(data.settings.service_days);
-    setOpeningTime(data.settings.opening_time.slice(0, 5));
-    setClosingTime(data.settings.closing_time.slice(0, 5));
+    if (data.settings.service) {
+      setServiceDays(data.settings.service.serviceDays);
+      setOpeningTime(data.settings.service.openingTime);
+      setClosingTime(data.settings.service.closingTime);
+    }
+    setEtaSettings(data.settings.eta ?? DEFAULT_ETA_SETTINGS);
+    setMapSettings(data.settings.map ?? DEFAULT_MAP_SETTINGS);
+    setFeatureFlags(data.settings.features ?? DEFAULT_FEATURE_FLAGS);
+    setGeofenceSettings(data.settings.geofence ?? DEFAULT_GEOFENCE_SETTINGS);
   }, [data?.loadedAt, data?.settings]);
 
   useEffect(() => {
@@ -350,6 +468,71 @@ export default function AdminPage() {
       window.clearInterval(timer);
     };
   }, [summaryLoaded, requestAdmin]);
+
+  // Load audit logs
+  const loadAuditLogs = useCallback(async (requestedOffset = auditOffset) => {
+    if (!session) return;
+    setAuditLoading(true);
+    setAuditError('');
+    try {
+      const params = new URLSearchParams({
+        limit: String(auditLimit),
+        offset: String(requestedOffset),
+      });
+      if (auditFilters.action) params.set('action', auditFilters.action);
+      if (auditFilters.targetTable) params.set('targetTable', auditFilters.targetTable);
+      if (auditFilters.targetId) params.set('targetId', auditFilters.targetId);
+      if (auditFilters.adminId) params.set('adminId', auditFilters.adminId);
+      if (auditFilters.since) params.set('since', auditFilters.since);
+
+      const payload = await requestAdmin<AuditLogResponse>(`/api/admin/audit?${params.toString()}`);
+      setAuditLogs(payload.logs);
+      setAuditTotalCount(payload.totalCount);
+    } catch (error) {
+      setAuditError(messageFromError(error));
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [session, requestAdmin, auditLimit, auditOffset, auditFilters]);
+
+  // Load position history
+  const loadPositionHistory = useCallback(async (requestedOffset = historyOffset) => {
+    if (!session) return;
+    setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const params = new URLSearchParams({
+        limit: String(historyLimit),
+        offset: String(requestedOffset),
+      });
+      if (historyFilters.busId) params.set('busId', historyFilters.busId);
+      if (historyFilters.sourceType) params.set('sourceType', historyFilters.sourceType);
+      if (historyFilters.since) params.set('since', historyFilters.since);
+      if (historyFilters.until) params.set('until', historyFilters.until);
+
+      const payload = await requestAdmin<PositionHistoryResponse>(`/api/admin/history?${params.toString()}`);
+      setPositionHistory(payload.history);
+      setHistoryTotalCount(payload.totalCount);
+    } catch (error) {
+      setHistoryError(messageFromError(error));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [session, requestAdmin, historyLimit, historyOffset, historyFilters]);
+
+  // Load audit logs when tab is active
+  useEffect(() => {
+    if (activeTab === 'audit') {
+      void loadAuditLogs();
+    }
+  }, [activeTab, loadAuditLogs]);
+
+  // Load history when tab is active
+  useEffect(() => {
+    if (activeTab === 'history') {
+      void loadPositionHistory();
+    }
+  }, [activeTab, loadPositionHistory]);
 
   const positionsByBus = useMemo(
     () => new Map((data?.positions ?? []).map((position) => [position.bus_id, position])),
@@ -484,6 +667,24 @@ export default function AdminPage() {
     }
   };
 
+  const changeAccountType = async (
+    user: AdminUser,
+    accountType: 'user' | 'driver'
+  ) => {
+    const saved = await mutate(
+      '/api/admin/users/role',
+      'PATCH',
+      {
+        id: user.id,
+        accountType,
+      },
+      accountType === 'driver'
+        ? 'Akun dipindahkan ke daftar driver. Tetapkan armada dari bagian Armada.'
+        : 'Akun dipindahkan ke daftar pengguna.'
+    );
+    if (saved) setEditingDriver(null);
+  };
+
   const submitDriverEdit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!editingDriver) return;
@@ -514,6 +715,7 @@ export default function AdminPage() {
       password: '',
       active: !user.bannedUntil || new Date(user.bannedUntil).getTime() <= now,
     });
+    setEditingAccountType('driver');
   };
 
   const submitStop = async (event: FormEvent<HTMLFormElement>) => {
@@ -595,8 +797,14 @@ export default function AdminPage() {
     await mutate(
       '/api/admin/settings',
       'PUT',
-      { serviceDays, openingTime, closingTime },
-      'Jadwal operasional disimpan.'
+      {
+        service: { serviceDays, openingTime, closingTime, timeZone: 'Asia/Jakarta' },
+        eta: etaSettings,
+        map: mapSettings,
+        features: featureFlags,
+        geofence: geofenceSettings,
+      },
+      'Pengaturan operasional disimpan.'
     );
   };
 
@@ -694,8 +902,7 @@ export default function AdminPage() {
             onChange={(event) => setBusForm({ ...busForm, driverId: event.target.value })}
           >
             <option value="">Belum ditugaskan</option>
-            {(data?.users ?? [])
-              .filter((user) => !user.isAdmin)
+            {(data?.drivers ?? [])
               .map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.fullName || user.email}
@@ -821,22 +1028,24 @@ export default function AdminPage() {
               required
             />
           </label>
-          <label className="admin-field">
-            Status kepadatan driver
-            <select
-              value={editingDriver.occupancy}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value === 'low' || value === 'medium' || value === 'full') {
-                  setEditingDriver({ ...editingDriver, occupancy: value });
-                }
-              }}
-            >
-              <option value="low">Lega</option>
-              <option value="medium">Sedang</option>
-              <option value="full">Penuh</option>
-            </select>
-          </label>
+          {editingAccountType === 'driver' && (
+            <label className="admin-field">
+              Status kepadatan driver
+              <select
+                value={editingDriver.occupancy}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === 'low' || value === 'medium' || value === 'full') {
+                    setEditingDriver({ ...editingDriver, occupancy: value });
+                  }
+                }}
+              >
+                <option value="low">Lega</option>
+                <option value="medium">Sedang</option>
+                <option value="full">Penuh</option>
+              </select>
+            </label>
+          )}
           <label className="admin-field">
             Password baru
             <input
@@ -1199,12 +1408,12 @@ export default function AdminPage() {
             <dl className="admin-facts">
               <div><dt>Armada aktif</dt><dd>{data.buses.filter((bus) => bus.is_active).length}</dd></div>
               <div><dt>Posisi baru</dt><dd>{freshPositions.length}</dd></div>
-              <div><dt>Akun terdaftar</dt><dd>{data.users.filter((user) => !user.isAdmin).length}</dd></div>
+              <div><dt>Pengguna</dt><dd>{data.users.length}</dd></div>
               <div><dt>Laporan 24 jam</dt><dd>{data.reportCount24h}</dd></div>
             </dl>
             <FleetTable
               buses={data.buses}
-              users={data.users}
+              users={data.drivers}
               positionsByBus={positionsByBus}
               now={now}
               saving={saving}
@@ -1235,7 +1444,7 @@ export default function AdminPage() {
             {data.buses.length ? (
               <FleetTable
                 buses={data.buses}
-                users={data.users}
+                users={data.drivers}
                 positionsByBus={positionsByBus}
                 now={now}
                 saving={saving}
@@ -1257,37 +1466,76 @@ export default function AdminPage() {
           <section className="admin-workspace" aria-labelledby="drivers-title">
             <div className="admin-section-heading">
               <div>
-                <h2 id="drivers-title">Akun dan penugasan</h2>
+                <h2 id="drivers-title">
+                  {accountList === 'users' ? 'Pengguna' : 'Driver'}
+                </h2>
                 <p>
-                  Buat akun, perbarui email atau password, dan lihat bus yang ditugaskan.
+                  {accountList === 'users'
+                    ? 'Akun pengguna terpisah dari akun driver. Hanya admin yang dapat mengubah jenis akun.'
+                    : 'Kelola profil driver dan penugasannya. Tetapkan armada dari bagian Armada.'}
                 </p>
               </div>
+              {accountList === 'drivers' && (
+                <button
+                  type="button"
+                  className="admin-button admin-button--primary"
+                  onClick={() => setDriverEditorOpen(true)}
+                >
+                  Tambah driver
+                </button>
+              )}
+            </div>
+            <div className="admin-account-switch" role="tablist" aria-label="Jenis akun">
               <button
                 type="button"
-                className="admin-button admin-button--primary"
-                onClick={() => setDriverEditorOpen(true)}
+                role="tab"
+                aria-selected={accountList === 'users'}
+                className={accountList === 'users' ? 'is-selected' : ''}
+                onClick={() => {
+                  setAccountList('users');
+                  setDriverEditorOpen(false);
+                  setEditingDriver(null);
+                }}
               >
-                Tambah driver
+                Pengguna
+                <span>{data.users.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={accountList === 'drivers'}
+                className={accountList === 'drivers' ? 'is-selected' : ''}
+                onClick={() => {
+                  setAccountList('drivers');
+                  setEditingDriver(null);
+                }}
+              >
+                Driver
+                <span>{data.drivers.length}</span>
               </button>
             </div>
-            {driverEditorOpen && renderDriverForm()}
-            {renderDriverEditForm()}
-            {data.users.length ? (
+            {accountList === 'drivers' && driverEditorOpen && renderDriverForm()}
+            {accountList === 'drivers' && renderDriverEditForm()}
+            {(accountList === 'users' ? data.users : data.drivers).length ? (
               <div className="admin-table-wrap">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th scope="col">Pengguna</th>
+                      <th scope="col">{accountList === 'users' ? 'Pengguna' : 'Driver'}</th>
                       <th scope="col">Masuk dengan</th>
-                      <th scope="col">Penugasan</th>
-                      <th scope="col">Status penumpang</th>
+                      {accountList === 'drivers' && (
+                        <>
+                          <th scope="col">Penugasan</th>
+                          <th scope="col">Status penumpang</th>
+                        </>
+                      )}
                       <th scope="col">Terakhir masuk</th>
                       <th scope="col">Status</th>
                       <th scope="col"><span className="admin-visually-hidden">Tindakan</span></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.users.map((user) => (
+                    {(accountList === 'users' ? data.users : data.drivers).map((user) => (
                       <tr key={user.id}>
                         <td data-label="Pengguna">
                           <strong>{user.fullName || user.email}</strong>
@@ -1296,27 +1544,56 @@ export default function AdminPage() {
                         <td data-label="Masuk dengan">
                           {user.provider === 'google' ? 'Google' : 'Email'}
                         </td>
-                        <td data-label="Penugasan">{user.assignedBusId ?? 'Belum ditugaskan'}</td>
-                        <td data-label="Status penumpang">{formatOccupancy(user.occupancy)}</td>
+                        {accountList === 'drivers' && (
+                          <>
+                            <td data-label="Penugasan">{user.assignedBusId ?? 'Belum ditugaskan'}</td>
+                            <td data-label="Status penumpang">{formatOccupancy(user.occupancy)}</td>
+                          </>
+                        )}
                         <td data-label="Terakhir masuk">{formatDate(user.lastSignInAt)}</td>
                         <td data-label="Status">
-                          {user.isAdmin
-                            ? 'Admin'
-                            : !user.bannedUntil || new Date(user.bannedUntil).getTime() <= now
-                              ? 'Aktif'
-                              : 'Dinonaktifkan'}
+                          {!user.bannedUntil || new Date(user.bannedUntil).getTime() <= now
+                            ? 'Aktif'
+                            : 'Dinonaktifkan'}
                         </td>
                         <td data-label="Tindakan" className="admin-actions-cell">
-                          {user.isAdmin ? (
-                            <span className="admin-muted">Kelola melalui allowlist</span>
+                          {accountList === 'drivers' ? (
+                            <>
+                              <button
+                                type="button"
+                                className="admin-button admin-button--quiet"
+                                onClick={() => openDriverEditor(user)}
+                              >
+                                Ubah profil
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-button admin-button--quiet"
+                                disabled={Boolean(user.assignedBusId) || saving}
+                                title={user.assignedBusId ? 'Lepas penugasan armada terlebih dahulu.' : undefined}
+                                onClick={() => void changeAccountType(user, 'user')}
+                              >
+                                Jadikan pengguna
+                              </button>
+                            </>
                           ) : (
-                            <button
-                              type="button"
-                              className="admin-button admin-button--quiet"
-                              onClick={() => openDriverEditor(user)}
-                            >
-                              Ubah akun
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                className="admin-button admin-button--quiet"
+                                onClick={() => openDriverEditor(user)}
+                              >
+                                Ubah profil
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-button admin-button--primary"
+                                disabled={saving}
+                                onClick={() => void changeAccountType(user, 'driver')}
+                              >
+                                Jadikan driver
+                              </button>
+                            </>
                           )}
                         </td>
                       </tr>
@@ -1326,10 +1603,14 @@ export default function AdminPage() {
               </div>
             ) : (
               <EmptyState
-                title="Belum ada akun pengguna"
-                detail="Akun driver dapat dibuat di sini atau didaftarkan secara opsional dari halaman driver."
-                action="Buat akun driver"
-                onAction={() => setDriverEditorOpen(true)}
+                title={accountList === 'users' ? 'Belum ada pengguna' : 'Belum ada driver'}
+                detail={
+                  accountList === 'users'
+                    ? 'Akun pengguna terdaftar akan muncul di daftar ini.'
+                    : 'Buat akun driver atau ubah akun pengguna menjadi driver.'
+                }
+                action={accountList === 'drivers' ? 'Buat akun driver' : undefined}
+                onAction={accountList === 'drivers' ? () => setDriverEditorOpen(true) : undefined}
               />
             )}
           </section>
@@ -1421,6 +1702,310 @@ export default function AdminPage() {
                 action="Tambah halte"
                 onAction={stopCreation}
               />
+            )}
+          </section>
+        )}
+
+        {activeTab === 'audit' && (
+          <section className="admin-workspace" aria-labelledby="audit-title">
+            <div className="admin-section-heading">
+              <div>
+                <h2 id="audit-title">Log Audit Admin</h2>
+                <p>Riwayat perubahan yang dilakukan oleh admin.</p>
+              </div>
+              <button
+                type="button"
+                className="admin-button admin-button--quiet"
+                onClick={() => void loadAuditLogs()}
+                disabled={auditLoading}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                Segarkan
+              </button>
+            </div>
+            {auditError && (
+              <div className="admin-message admin-message--error" role="alert">{auditError}</div>
+            )}
+            <div className="admin-form admin-filter-form">
+              <div className="admin-fields admin-fields--three">
+                <label className="admin-field">
+                  Aksi
+                  <input
+                    name="audit-action"
+                    type="text"
+                    value={auditFilters.action}
+                    onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })}
+                    placeholder="create_bus, update_stop, etc"
+                  />
+                </label>
+                <label className="admin-field">
+                  Tabel Target
+                  <input
+                    name="audit-table"
+                    type="text"
+                    value={auditFilters.targetTable}
+                    onChange={(e) => setAuditFilters({ ...auditFilters, targetTable: e.target.value })}
+                    placeholder="buses, stops, etc"
+                  />
+                </label>
+                <label className="admin-field">
+                  Target ID
+                  <input
+                    name="audit-target-id"
+                    type="text"
+                    value={auditFilters.targetId}
+                    onChange={(e) => setAuditFilters({ ...auditFilters, targetId: e.target.value })}
+                    placeholder="LINUS-01, halte-pintu-1"
+                  />
+                </label>
+                <label className="admin-field">
+                  Admin ID
+                  <input
+                    name="audit-admin-id"
+                    type="text"
+                    value={auditFilters.adminId}
+                    onChange={(e) => setAuditFilters({ ...auditFilters, adminId: e.target.value })}
+                    placeholder="UUID admin"
+                  />
+                </label>
+                <label className="admin-field">
+                  Dari Tanggal
+                  <input
+                    name="audit-since"
+                    type="date"
+                    value={auditFilters.since}
+                    onChange={(e) => setAuditFilters({ ...auditFilters, since: e.target.value })}
+                  />
+                </label>
+                <label className="admin-field">
+                  <button
+                    type="button"
+                    className="admin-button admin-button--primary"
+                    onClick={() => { setAuditOffset(0); void loadAuditLogs(0); }}
+                    disabled={auditLoading}
+                  >
+                    Filter
+                  </button>
+                </label>
+              </div>
+            </div>
+            {auditLoading ? (
+              <div className="admin-skeleton-table" aria-busy="true">
+                {Array.from({ length: 5 }, (_, index) => (
+                  <div className="admin-skeleton-row" key={index}>
+                    <span /><span /><span /><span /><span />
+                  </div>
+                ))}
+              </div>
+            ) : auditLogs.length ? (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Waktu</th>
+                      <th scope="col">Admin</th>
+                      <th scope="col">Aksi</th>
+                      <th scope="col">Tabel</th>
+                      <th scope="col">Target ID</th>
+                      <th scope="col">IP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td data-label="Waktu">{formatDate(log.created_at)}</td>
+                        <td data-label="Admin">{log.admin_id.slice(0, 8)}…</td>
+                        <td data-label="Aksi"><code>{log.action}</code></td>
+                        <td data-label="Tabel">{log.target_table}</td>
+                        <td data-label="Target ID">{log.target_id ?? '-'}</td>
+                        <td data-label="IP">{log.ip_address ?? '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title="Belum ada log audit" detail="Log akan muncul setelah admin melakukan perubahan." />
+            )}
+            {auditTotalCount > auditLimit && (
+              <div className="admin-pagination">
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => {
+                    const nextOffset = Math.max(0, auditOffset - auditLimit);
+                    setAuditOffset(nextOffset);
+                    void loadAuditLogs(nextOffset);
+                  }}
+                  disabled={auditOffset === 0 || auditLoading}
+                >
+                  Sebelumnya
+                </button>
+                <span>Halaman {Math.floor(auditOffset / auditLimit) + 1} dari {Math.ceil(auditTotalCount / auditLimit)}</span>
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => {
+                    const nextOffset = auditOffset + auditLimit;
+                    setAuditOffset(nextOffset);
+                    void loadAuditLogs(nextOffset);
+                  }}
+                  disabled={auditOffset + auditLimit >= auditTotalCount || auditLoading}
+                >
+                  Selanjutnya
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === 'history' && (
+          <section className="admin-workspace" aria-labelledby="history-title">
+            <div className="admin-section-heading">
+              <div>
+                <h2 id="history-title">Riwayat Posisi GPS</h2>
+                <p>Data historis posisi armada (diambil dari trigger database).</p>
+              </div>
+              <button
+                type="button"
+                className="admin-button admin-button--quiet"
+                onClick={() => void loadPositionHistory()}
+                disabled={historyLoading}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                Segarkan
+              </button>
+            </div>
+            {historyError && (
+              <div className="admin-message admin-message--error" role="alert">{historyError}</div>
+            )}
+            <div className="admin-form admin-filter-form">
+              <div className="admin-fields admin-fields--three">
+                <label className="admin-field">
+                  Armada
+                  <select
+                    name="history-bus"
+                    value={historyFilters.busId}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, busId: e.target.value })}
+                  >
+                    <option value="">Semua armada</option>
+                    {data.buses.map((bus) => (
+                      <option key={bus.id} value={bus.id}>{bus.id} — {bus.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-field">
+                  Sumber
+                  <select
+                    name="history-source"
+                    value={historyFilters.sourceType}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, sourceType: e.target.value })}
+                  >
+                    <option value="">Semua sumber</option>
+                    <option value="driver">Driver</option>
+                    <option value="device">Device</option>
+                    <option value="simulator">Simulator</option>
+                    <option value="crowd">Crowd</option>
+                  </select>
+                </label>
+                <label className="admin-field">
+                  Dari
+                  <input
+                    name="history-since"
+                    type="datetime-local"
+                    value={historyFilters.since}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, since: e.target.value })}
+                  />
+                </label>
+                <label className="admin-field">
+                  Sampai
+                  <input
+                    name="history-until"
+                    type="datetime-local"
+                    value={historyFilters.until}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, until: e.target.value })}
+                  />
+                </label>
+                <label className="admin-field">
+                  <button
+                    type="button"
+                    className="admin-button admin-button--primary"
+                    onClick={() => { setHistoryOffset(0); void loadPositionHistory(0); }}
+                    disabled={historyLoading}
+                  >
+                    Filter
+                  </button>
+                </label>
+              </div>
+            </div>
+            {historyLoading ? (
+              <div className="admin-skeleton-table" aria-busy="true">
+                {Array.from({ length: 5 }, (_, index) => (
+                  <div className="admin-skeleton-row" key={index}>
+                    <span /><span /><span /><span /><span />
+                  </div>
+                ))}
+              </div>
+            ) : positionHistory.length ? (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Waktu</th>
+                      <th scope="col">Armada</th>
+                      <th scope="col">Koordinat</th>
+                      <th scope="col">Kecepatan</th>
+                      <th scope="col">Kepadatan</th>
+                      <th scope="col">Sumber</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positionHistory.map((item) => (
+                      <tr key={item.id}>
+                        <td data-label="Waktu">{formatDate(item.recorded_at)}</td>
+                        <td data-label="Armada">{item.bus_id}</td>
+                        <td data-label="Koordinat" className="admin-number">
+                          {item.lat.toFixed(5)}, {item.lng.toFixed(5)}
+                        </td>
+                        <td data-label="Kecepatan">{Math.round(item.speed_kmh)} km/j</td>
+                        <td data-label="Kepadatan">{formatOccupancy(item.occupancy)}</td>
+                        <td data-label="Sumber">{item.source_type}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title="Belum ada riwayat posisi" detail="Data historis akan terisi saat armada mengirim GPS." />
+            )}
+            {historyTotalCount > historyLimit && (
+              <div className="admin-pagination">
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => {
+                    const nextOffset = Math.max(0, historyOffset - historyLimit);
+                    setHistoryOffset(nextOffset);
+                    void loadPositionHistory(nextOffset);
+                  }}
+                  disabled={historyOffset === 0 || historyLoading}
+                >
+                  Sebelumnya
+                </button>
+                <span>Halaman {Math.floor(historyOffset / historyLimit) + 1} dari {Math.ceil(historyTotalCount / historyLimit)}</span>
+                <button
+                  type="button"
+                  className="admin-button admin-button--quiet"
+                  onClick={() => {
+                    const nextOffset = historyOffset + historyLimit;
+                    setHistoryOffset(nextOffset);
+                    void loadPositionHistory(nextOffset);
+                  }}
+                  disabled={historyOffset + historyLimit >= historyTotalCount || historyLoading}
+                >
+                  Selanjutnya
+                </button>
+              </div>
             )}
           </section>
         )}
@@ -1531,6 +2116,192 @@ export default function AdminPage() {
                   />
                 </label>
               </div>
+              <fieldset className="admin-settings-group">
+                <legend>Estimasi dan posisi</legend>
+                <div className="admin-fields admin-fields--three">
+                  <label className="admin-field">
+                    Kecepatan minimum (km/jam)
+                    <input
+                      name="min-speed"
+                      type="number"
+                      min="1"
+                      max="120"
+                      value={etaSettings.minSpeedKmh}
+                      onChange={(event) =>
+                        setEtaSettings((current) => ({
+                          ...current,
+                          minSpeedKmh: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Kecepatan maksimum (km/jam)
+                    <input
+                      name="max-speed"
+                      type="number"
+                      min="1"
+                      max="120"
+                      value={etaSettings.maxSpeedKmh}
+                      onChange={(event) =>
+                        setEtaSettings((current) => ({
+                          ...current,
+                          maxSpeedKmh: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="admin-field">
+                    Posisi dianggap kedaluwarsa (detik)
+                    <input
+                      name="stale-threshold"
+                      type="number"
+                      min="1"
+                      max="3600"
+                      value={etaSettings.staleThresholdSeconds}
+                      onChange={(event) =>
+                        setEtaSettings((current) => ({
+                          ...current,
+                          staleThresholdSeconds: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset className="admin-settings-group">
+                <legend>Peta dan fitur</legend>
+                <div className="admin-fields admin-fields--two">
+                  <label className="admin-field">
+                    Penyedia peta
+                    <select
+                      name="tile-provider"
+                      value={mapSettings.tileProvider}
+                      onChange={(event) => {
+                        const tileProvider = event.currentTarget.value;
+                        if (
+                          tileProvider === 'carto_voyager' ||
+                          tileProvider === 'osm' ||
+                          tileProvider === 'pmtiles_r2'
+                        ) {
+                          setMapSettings((current) => ({
+                            ...current,
+                            tileProvider,
+                          }));
+                        }
+                      }}
+                    >
+                      <option value="carto_voyager">CARTO Voyager</option>
+                      <option value="osm">OpenStreetMap</option>
+                      <option value="pmtiles_r2">Peta khusus (URL lingkungan)</option>
+                    </select>
+                  </label>
+                  <label className="admin-day">
+                    <input
+                      type="checkbox"
+                      checked={mapSettings.fallbackToOsm}
+                      onChange={(event) =>
+                        setMapSettings((current) => ({
+                          ...current,
+                          fallbackToOsm: event.target.checked,
+                        }))
+                      }
+                    />
+                    Gunakan OSM jika peta utama gagal
+                  </label>
+                  <label className="admin-day">
+                    <input
+                      type="checkbox"
+                      checked={featureFlags.crowdReportingEnabled}
+                      onChange={(event) =>
+                        setFeatureFlags((current) => ({
+                          ...current,
+                          crowdReportingEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    Aktifkan laporan mahasiswa
+                  </label>
+                  <label className="admin-day">
+                    <input
+                      type="checkbox"
+                      checked={featureFlags.simulationMode}
+                      onChange={(event) =>
+                        setFeatureFlags((current) => ({
+                          ...current,
+                          simulationMode: event.target.checked,
+                        }))
+                      }
+                    />
+                    Paksa mode simulasi
+                  </label>
+                  <label className="admin-day">
+                    <input
+                      type="checkbox"
+                      checked={featureFlags.maintenanceMode}
+                      onChange={(event) =>
+                        setFeatureFlags((current) => ({
+                          ...current,
+                          maintenanceMode: event.target.checked,
+                        }))
+                      }
+                    />
+                    Mode pemeliharaan
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset className="admin-settings-group">
+                <legend>Batas area kampus</legend>
+                <div className="admin-fields admin-fields--three">
+                  {([
+                    ['minLat', 'Lintang minimum'],
+                    ['maxLat', 'Lintang maksimum'],
+                    ['minLng', 'Bujur minimum'],
+                    ['maxLng', 'Bujur maksimum'],
+                  ] as const).map(([key, label]) => (
+                    <label className="admin-field" key={key}>
+                      {label}
+                      <input
+                        name={key}
+                        type="number"
+                        step="0.000001"
+                        value={geofenceSettings.campusBounds[key]}
+                        onChange={(event) =>
+                          setGeofenceSettings((current) => ({
+                            ...current,
+                            campusBounds: {
+                              ...current.campusBounds,
+                              [key]: Number(event.target.value),
+                            },
+                          }))
+                        }
+                        required
+                      />
+                    </label>
+                  ))}
+                  <label className="admin-field">
+                    Jarak maksimum dari rute (km)
+                    <input
+                      name="max-distance"
+                      type="number"
+                      min="0.01"
+                      max="10"
+                      step="0.01"
+                      value={geofenceSettings.maxDistanceFromRouteKm}
+                      onChange={(event) =>
+                        setGeofenceSettings((current) => ({
+                          ...current,
+                          maxDistanceFromRouteKm: Number(event.target.value),
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              </fieldset>
               <p className="admin-help">
                 Mengubah halte atau urutannya akan memperbarui rute yang dipakai peta dan ETA.
               </p>
@@ -1539,7 +2310,7 @@ export default function AdminPage() {
                 className="admin-button admin-button--primary"
                 disabled={saving}
               >
-                {saving ? 'Menyimpan…' : 'Simpan jam layanan'}
+                {saving ? 'Menyimpan…' : 'Simpan pengaturan'}
               </button>
             </form>
             <div className="admin-route-note">

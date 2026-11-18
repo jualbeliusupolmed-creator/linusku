@@ -1,5 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAdminRequestMetadata, logAdminAction as writeAdminAction } from '@/lib/adminAudit';
+
+async function logAdminAction(
+  client: Extract<Awaited<ReturnType<typeof requireAdmin>>, { ok: true }>['client'],
+  adminId: string,
+  action: string,
+  targetId: string,
+  oldValue: Record<string, unknown> | null,
+  newValue: Record<string, unknown> | null,
+  request: NextRequest
+) {
+  await writeAdminAction(client, {
+    adminId,
+    action,
+    targetTable: 'crowd_reports',
+    targetId,
+    oldValue,
+    newValue,
+    ...getAdminRequestMetadata(request),
+  });
+}
 
 export async function DELETE(request: NextRequest) {
   const authorization = await requireAdmin(request);
@@ -16,6 +37,19 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
+  // Get old value for audit
+  const { data: oldData, error: oldError } = await authorization.client
+    .from('crowd_reports')
+    .select('id, bus_id, stop_id, lat, lng, occupancy, created_at')
+    .eq('id', reportId)
+    .maybeSingle();
+  if (oldError || !oldData) {
+    return NextResponse.json(
+      { error: `Laporan belum dapat diperiksa: ${oldError?.message ?? 'laporan tidak ditemukan'}` },
+      { status: oldError ? 503 : 404 }
+    );
+  }
+
   const { error } = await authorization.client
     .from('crowd_reports')
     .delete()
@@ -26,5 +60,7 @@ export async function DELETE(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  await logAdminAction(authorization.client, authorization.user.id, 'delete_report', reportId, oldData ?? null, null, request);
   return NextResponse.json({ ok: true });
 }

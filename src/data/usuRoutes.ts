@@ -9,11 +9,48 @@ export interface BusStop {
 
 export type OccupancyLevel = 'low' | 'medium' | 'full';
 
+export type SourceType = 'driver' | 'device' | 'simulator' | 'crowd';
+
 export interface LinusOperatingSettings {
   serviceDays: number[];
   openingTime: string;
   closingTime: string;
   timeZone: string;
+}
+
+export interface ETASettings {
+  minSpeedKmh: number;
+  maxSpeedKmh: number;
+  staleThresholdSeconds: number;
+}
+
+export interface MapSettings {
+  tileProvider: 'carto_voyager' | 'pmtiles_r2' | 'osm';
+  fallbackToOsm: boolean;
+}
+
+export interface FeatureFlags {
+  crowdReportingEnabled: boolean;
+  simulationMode: boolean;
+  maintenanceMode: boolean;
+}
+
+export interface GeofenceSettings {
+  campusBounds: {
+    minLat: number;
+    maxLat: number;
+    minLng: number;
+    maxLng: number;
+  };
+  maxDistanceFromRouteKm: number;
+}
+
+export interface LinuskuSettings {
+  service: LinusOperatingSettings;
+  eta: ETASettings;
+  map: MapSettings;
+  features: FeatureFlags;
+  geofence: GeofenceSettings;
 }
 
 export const DEFAULT_OPERATING_SETTINGS: LinusOperatingSettings = {
@@ -23,6 +60,211 @@ export const DEFAULT_OPERATING_SETTINGS: LinusOperatingSettings = {
   timeZone: 'Asia/Jakarta',
 };
 
+export const DEFAULT_ETA_SETTINGS: ETASettings = {
+  minSpeedKmh: 12,
+  maxSpeedKmh: 80,
+  staleThresholdSeconds: 45,
+};
+
+export const DEFAULT_MAP_SETTINGS: MapSettings = {
+  tileProvider: 'carto_voyager',
+  fallbackToOsm: true,
+};
+
+export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
+  crowdReportingEnabled: true,
+  simulationMode: false,
+  maintenanceMode: false,
+};
+
+export const DEFAULT_GEOFENCE_SETTINGS: GeofenceSettings = {
+  campusBounds: {
+    minLat: 3.550,
+    maxLat: 3.575,
+    minLng: 98.648,
+    maxLng: 98.665,
+  },
+  maxDistanceFromRouteKm: 0.3,
+};
+
+export const DEFAULT_LINUSKU_SETTINGS: LinuskuSettings = {
+  service: DEFAULT_OPERATING_SETTINGS,
+  eta: DEFAULT_ETA_SETTINGS,
+  map: DEFAULT_MAP_SETTINGS,
+  features: DEFAULT_FEATURE_FLAGS,
+  geofence: DEFAULT_GEOFENCE_SETTINGS,
+};
+
+function settingsRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function settingValue(
+  value: Record<string, unknown>,
+  camelCaseKey: string,
+  snakeCaseKey: string
+): unknown {
+  return value[camelCaseKey] ?? value[snakeCaseKey];
+}
+
+function settingTime(value: unknown, fallback: string): string {
+  if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value)) {
+    return fallback;
+  }
+  return value.slice(0, 5);
+}
+
+export function mergeLinuskuSettings(
+  values: Readonly<Record<string, unknown>>
+): LinuskuSettings {
+  const service = settingsRecord(values.service);
+  const eta = settingsRecord(values.eta);
+  const map = settingsRecord(values.map);
+  const features = settingsRecord(values.features);
+  const geofence = settingsRecord(values.geofence);
+  const campusBounds = settingsRecord(geofence.campusBounds ?? geofence.campus_bounds);
+  const serviceDays = settingValue(service, 'serviceDays', 'service_days');
+  const timeZone = service.timeZone ?? service.time_zone;
+  const minSpeedKmh = settingValue(eta, 'minSpeedKmh', 'min_speed_kmh');
+  const maxSpeedKmh = settingValue(eta, 'maxSpeedKmh', 'max_speed_kmh');
+  const staleThresholdSeconds = settingValue(
+    eta,
+    'staleThresholdSeconds',
+    'stale_threshold_seconds'
+  );
+  const tileProvider = settingValue(map, 'tileProvider', 'tile_provider');
+  const fallbackToOsm = settingValue(map, 'fallbackToOsm', 'fallback_to_osm');
+  const crowdReportingEnabled = settingValue(
+    features,
+    'crowdReportingEnabled',
+    'crowd_reporting_enabled'
+  );
+  const simulationMode = settingValue(features, 'simulationMode', 'simulation_mode');
+  const maintenanceMode = settingValue(
+    features,
+    'maintenanceMode',
+    'maintenance_mode'
+  );
+  const minLat = settingValue(campusBounds, 'minLat', 'min_lat');
+  const maxLat = settingValue(campusBounds, 'maxLat', 'max_lat');
+  const minLng = settingValue(campusBounds, 'minLng', 'min_lng');
+  const maxLng = settingValue(campusBounds, 'maxLng', 'max_lng');
+  const maxDistanceFromRouteKm = settingValue(
+    geofence,
+    'maxDistanceFromRouteKm',
+    'max_distance_from_route_km'
+  );
+  const normalizedDays =
+    Array.isArray(serviceDays) &&
+    serviceDays.length > 0 &&
+    serviceDays.every(
+      (day) => Number.isInteger(day) && Number(day) >= 1 && Number(day) <= 7
+    ) &&
+    new Set(serviceDays).size === serviceDays.length
+      ? serviceDays as number[]
+      : DEFAULT_OPERATING_SETTINGS.serviceDays;
+  const validBounds =
+    typeof minLat === 'number' &&
+    typeof maxLat === 'number' &&
+    typeof minLng === 'number' &&
+    typeof maxLng === 'number' &&
+    Number.isFinite(minLat) &&
+    Number.isFinite(maxLat) &&
+    Number.isFinite(minLng) &&
+    Number.isFinite(maxLng) &&
+    minLat < maxLat &&
+    minLng < maxLng;
+
+  let validTimeZone = DEFAULT_OPERATING_SETTINGS.timeZone;
+  if (typeof timeZone === 'string') {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone });
+      validTimeZone = timeZone;
+    } catch {
+      validTimeZone = DEFAULT_OPERATING_SETTINGS.timeZone;
+    }
+  }
+
+  return {
+    service: {
+      serviceDays: normalizedDays,
+      openingTime: settingTime(
+        settingValue(service, 'openingTime', 'opening_time'),
+        DEFAULT_OPERATING_SETTINGS.openingTime
+      ),
+      closingTime: settingTime(
+        settingValue(service, 'closingTime', 'closing_time'),
+        DEFAULT_OPERATING_SETTINGS.closingTime
+      ),
+      timeZone: validTimeZone,
+    },
+    eta: {
+      minSpeedKmh:
+        typeof minSpeedKmh === 'number' &&
+        Number.isFinite(minSpeedKmh) &&
+        minSpeedKmh > 0
+          ? minSpeedKmh
+          : DEFAULT_ETA_SETTINGS.minSpeedKmh,
+      maxSpeedKmh:
+        typeof maxSpeedKmh === 'number' &&
+        Number.isFinite(maxSpeedKmh) &&
+        maxSpeedKmh > 0
+          ? maxSpeedKmh
+          : DEFAULT_ETA_SETTINGS.maxSpeedKmh,
+      staleThresholdSeconds:
+        typeof staleThresholdSeconds === 'number' &&
+        Number.isFinite(staleThresholdSeconds) &&
+        staleThresholdSeconds > 0
+          ? staleThresholdSeconds
+          : DEFAULT_ETA_SETTINGS.staleThresholdSeconds,
+    },
+    map: {
+      tileProvider:
+        tileProvider === 'carto_voyager' ||
+        tileProvider === 'pmtiles_r2' ||
+        tileProvider === 'osm'
+          ? tileProvider
+          : DEFAULT_MAP_SETTINGS.tileProvider,
+      fallbackToOsm:
+        typeof fallbackToOsm === 'boolean'
+          ? fallbackToOsm
+          : DEFAULT_MAP_SETTINGS.fallbackToOsm,
+    },
+    features: {
+      crowdReportingEnabled:
+        typeof crowdReportingEnabled === 'boolean'
+          ? crowdReportingEnabled
+          : DEFAULT_FEATURE_FLAGS.crowdReportingEnabled,
+      simulationMode:
+        typeof simulationMode === 'boolean'
+          ? simulationMode
+          : DEFAULT_FEATURE_FLAGS.simulationMode,
+      maintenanceMode:
+        typeof maintenanceMode === 'boolean'
+          ? maintenanceMode
+          : DEFAULT_FEATURE_FLAGS.maintenanceMode,
+    },
+    geofence: {
+      campusBounds: validBounds
+        ? {
+            minLat: minLat as number,
+            maxLat: maxLat as number,
+            minLng: minLng as number,
+            maxLng: maxLng as number,
+          }
+        : DEFAULT_GEOFENCE_SETTINGS.campusBounds,
+      maxDistanceFromRouteKm:
+        typeof maxDistanceFromRouteKm === 'number' &&
+        Number.isFinite(maxDistanceFromRouteKm) &&
+        maxDistanceFromRouteKm > 0
+          ? maxDistanceFromRouteKm
+          : DEFAULT_GEOFENCE_SETTINGS.maxDistanceFromRouteKm,
+    },
+  };
+}
+
 export interface BusPosition {
   busId: string;
   name: string;
@@ -31,8 +273,47 @@ export interface BusPosition {
   speedKmh: number;
   heading: number;
   occupancy: OccupancyLevel;
-  sourceType: 'driver' | 'crowd' | 'simulator';
+  sourceType: SourceType;
   updatedAt: string;
+}
+
+export interface BusPositionHistory {
+  id: number;
+  busId: string;
+  lat: number;
+  lng: number;
+  speedKmh: number;
+  heading: number;
+  occupancy: OccupancyLevel;
+  sourceType: SourceType;
+  recordedAt: string;
+}
+
+export interface AdminAuditLog {
+  id: number;
+  adminId: string;
+  action: string;
+  targetTable: string;
+  targetId: string | null;
+  oldValue: Record<string, unknown> | null;
+  newValue: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface DriverSession {
+  id: string;
+  driverId: string;
+  busId: string | null;
+  sessionToken: string;
+  deviceInfo: Record<string, unknown> | null;
+  ipAddress: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  lastGpsAt: string | null;
+  gpsCount: number;
+  status: 'active' | 'ended' | 'expired';
 }
 
 /**
@@ -138,22 +419,41 @@ export const USU_MAP_BOUNDS: [[number, number], [number, number]] = [
   [3.5695, 98.6612],
 ];
 
-export const CAMPUS_BOUNDS = {
-  minLat: 3.550,
-  maxLat: 3.575,
-  minLng: 98.648,
-  maxLng: 98.665,
-};
+export const CAMPUS_BOUNDS = DEFAULT_GEOFENCE_SETTINGS.campusBounds;
 
-export function isInsideCampus(lat: number, lng: number): boolean {
+export function isInsideCampus(lat: number, lng: number, bounds = CAMPUS_BOUNDS): boolean {
   return (
     Number.isFinite(lat) &&
     Number.isFinite(lng) &&
-    lat >= CAMPUS_BOUNDS.minLat &&
-    lat <= CAMPUS_BOUNDS.maxLat &&
-    lng >= CAMPUS_BOUNDS.minLng &&
-    lng <= CAMPUS_BOUNDS.maxLng
+    lat >= bounds.minLat &&
+    lat <= bounds.maxLat &&
+    lng >= bounds.minLng &&
+    lng <= bounds.maxLng
   );
+}
+
+/**
+ * Validates if a coordinate is within campus bounds using settings from DB
+ */
+export function isInsideCampusWithSettings(
+  lat: number,
+  lng: number,
+  settings: LinuskuSettings = DEFAULT_LINUSKU_SETTINGS
+): boolean {
+  return isInsideCampus(lat, lng, settings.geofence.campusBounds);
+}
+
+/**
+ * Validates if a coordinate is near the route using settings from DB
+ */
+export function isNearRouteWithSettings(
+  lat: number,
+  lng: number,
+  settings: LinuskuSettings = DEFAULT_LINUSKU_SETTINGS,
+  polyline: [number, number][] = ROUTE_POLYLINE
+): boolean {
+  const projection = projectToRoute(lat, lng, polyline);
+  return projection.distanceKm <= settings.geofence.maxDistanceFromRouteKm;
 }
 
 export function findNearestStop(
@@ -266,11 +566,13 @@ export function haversineDistanceKm(
 
 /**
  * Menghitung estimasi waktu tiba (menit) ke halte tertentu.
+ * Uses settings for min/max speed if provided.
  */
 export function estimateEtaMinutes(
   bus: Pick<BusPosition, 'lat' | 'lng' | 'speedKmh'>,
   stop: BusStop,
-  polyline: [number, number][] = ROUTE_POLYLINE
+  polyline: [number, number][] = ROUTE_POLYLINE,
+  etaSettings: ETASettings = DEFAULT_ETA_SETTINGS
 ): number {
   const roadDistanceKm = routeDistanceToStopKm(
     bus.lat,
@@ -278,7 +580,10 @@ export function estimateEtaMinutes(
     stop,
     polyline
   );
-  const effectiveSpeed = Math.max(bus.speedKmh || 18, 12);
+  const effectiveSpeed = Math.min(
+    Math.max(bus.speedKmh || etaSettings.minSpeedKmh, etaSettings.minSpeedKmh),
+    etaSettings.maxSpeedKmh
+  );
   const minutes = Math.round((roadDistanceKm / effectiveSpeed) * 60);
   return Math.max(minutes, 1);
 }

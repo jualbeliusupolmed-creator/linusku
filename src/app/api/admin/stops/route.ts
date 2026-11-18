@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isInsideCampus } from '@/data/usuRoutes';
+import {
+  DEFAULT_LINUSKU_SETTINGS,
+  isInsideCampusWithSettings,
+  mergeLinuskuSettings,
+  type LinuskuSettings,
+} from '@/data/usuRoutes';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAdminRequestMetadata, logAdminAction as writeAdminAction } from '@/lib/adminAudit';
 
 interface StopInput {
   id: string;
@@ -10,7 +16,27 @@ interface StopInput {
   lng: number;
 }
 
-function parseStopInput(value: unknown): StopInput | null {
+type AdminClient = Extract<Awaited<ReturnType<typeof requireAdmin>>, { ok: true }>['client'];
+
+async function getValidationSettings(client: AdminClient): Promise<LinuskuSettings> {
+  const { data, error } = await client
+    .from('linusku_settings_v2')
+    .select('key, value')
+    .in('key', ['geofence']);
+
+  if (error && error.code !== 'PGRST205' && error.code !== '42P01') {
+    throw new Error(error.message);
+  }
+  if (!data || data.length === 0) {
+    return DEFAULT_LINUSKU_SETTINGS;
+  }
+
+  return mergeLinuskuSettings(
+    Object.fromEntries(data.map((row) => [row.key, row.value]))
+  );
+}
+
+function parseStopInput(value: unknown, settings: LinuskuSettings): StopInput | null {
   if (!value || typeof value !== 'object') return null;
   const input = value as Record<string, unknown>;
   const id = typeof input.id === 'string' ? input.id.trim().toLowerCase() : '';
@@ -25,18 +51,49 @@ function parseStopInput(value: unknown): StopInput | null {
     name.length > 100 ||
     area.length < 2 ||
     area.length > 120 ||
-    !isInsideCampus(lat, lng)
+    !isInsideCampusWithSettings(lat, lng, settings)
   ) {
     return null;
   }
   return { id, name, area, lat, lng };
 }
 
+async function logAdminAction(
+  client: Extract<Awaited<ReturnType<typeof requireAdmin>>, { ok: true }>['client'],
+  adminId: string,
+  action: string,
+  targetId: string,
+  oldValue: Record<string, unknown> | null,
+  newValue: Record<string, unknown> | null,
+  request: NextRequest
+) {
+  await writeAdminAction(client, {
+    adminId,
+    action,
+    targetTable: 'stops',
+    targetId,
+    oldValue,
+    newValue,
+    ...getAdminRequestMetadata(request),
+  });
+}
+
 export async function POST(request: NextRequest) {
   const authorization = await requireAdmin(request);
   if (!authorization.ok) return authorization.response;
+
+  let settings;
+  try {
+    settings = await getValidationSettings(authorization.client);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Kesalahan server';
+    return NextResponse.json(
+      { error: `Pengaturan geofence belum dapat dimuat: ${message}` },
+      { status: 503 }
+    );
+  }
   const body: unknown = await request.json().catch(() => null);
-  const input = parseStopInput(body);
+  const input = parseStopInput(body, settings);
   if (!input) {
     return NextResponse.json(
       { error: 'Periksa ID, nama, area, dan koordinat halte di dalam Kampus USU.' },
@@ -68,18 +125,44 @@ export async function POST(request: NextRequest) {
       { status: 409 }
     );
   }
+
+  await logAdminAction(authorization.client, authorization.user.id, 'create_stop', input.id, null, input as unknown as Record<string, unknown>, request);
   return NextResponse.json({ stop: data }, { status: 201 });
 }
 
 export async function PATCH(request: NextRequest) {
   const authorization = await requireAdmin(request);
   if (!authorization.ok) return authorization.response;
+
+  let settings;
+  try {
+    settings = await getValidationSettings(authorization.client);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Kesalahan server';
+    return NextResponse.json(
+      { error: `Pengaturan geofence belum dapat dimuat: ${message}` },
+      { status: 503 }
+    );
+  }
   const body: unknown = await request.json().catch(() => null);
-  const input = parseStopInput(body);
+  const input = parseStopInput(body, settings);
   if (!input) {
     return NextResponse.json(
       { error: 'Periksa ID, nama, area, dan koordinat halte di dalam Kampus USU.' },
       { status: 400 }
+    );
+  }
+
+  // Get old value for audit
+  const { data: oldData, error: oldError } = await authorization.client
+    .from('stops')
+    .select('id, name, area, lat, lng, sequence_order')
+    .eq('id', input.id)
+    .maybeSingle();
+  if (oldError || !oldData) {
+    return NextResponse.json(
+      { error: `Halte belum dapat diperiksa: ${oldError?.message ?? 'halte tidak ditemukan'}` },
+      { status: oldError ? 503 : 404 }
     );
   }
 
@@ -100,6 +183,8 @@ export async function PATCH(request: NextRequest) {
       { status: error ? 503 : 404 }
     );
   }
+
+  await logAdminAction(authorization.client, authorization.user.id, 'update_stop', input.id, oldData, { ...input }, request);
   return NextResponse.json({ stop: data });
 }
 
@@ -127,6 +212,19 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
+  // Get old value for audit
+  const { data: oldData, error: oldError } = await authorization.client
+    .from('stops')
+    .select('id, name, area, lat, lng, sequence_order')
+    .eq('id', stopId)
+    .maybeSingle();
+  if (oldError || !oldData) {
+    return NextResponse.json(
+      { error: `Halte belum dapat diperiksa: ${oldError?.message ?? 'halte tidak ditemukan'}` },
+      { status: oldError ? 503 : 404 }
+    );
+  }
+
   const { error } = await authorization.client.from('stops').delete().eq('id', stopId);
   if (error) {
     return NextResponse.json(
@@ -135,5 +233,6 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
+  await logAdminAction(authorization.client, authorization.user.id, 'delete_stop', stopId, oldData ?? null, null, request);
   return NextResponse.json({ ok: true });
 }

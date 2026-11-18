@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminEmailAllowed, requireAdmin } from '@/lib/adminAuth';
+import { getAdminRequestMetadata, logAdminAction as writeAdminAction } from '@/lib/adminAudit';
 
 function isEmail(value: unknown): value is string {
   return (
@@ -7,6 +8,26 @@ function isEmail(value: unknown): value is string {
     value.trim().length <= 254 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
   );
+}
+
+async function logAdminAction(
+  client: Extract<Awaited<ReturnType<typeof requireAdmin>>, { ok: true }>['client'],
+  adminId: string,
+  action: string,
+  targetId: string,
+  oldValue: Record<string, unknown> | null,
+  newValue: Record<string, unknown> | null,
+  request: NextRequest
+) {
+  await writeAdminAction(client, {
+    adminId,
+    action,
+    targetTable: 'auth.users',
+    targetId,
+    oldValue,
+    newValue,
+    ...getAdminRequestMetadata(request),
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -41,6 +62,7 @@ export async function POST(request: NextRequest) {
     password,
     email_confirm: true,
     user_metadata: { full_name: fullName },
+    app_metadata: { linusku_account_type: 'driver' },
   });
   if (error || !data.user) {
     return NextResponse.json(
@@ -49,12 +71,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  await logAdminAction(authorization.client, authorization.user.id, 'create_driver', data.user.id, null, { email, fullName }, request);
   return NextResponse.json(
     {
       user: {
         id: data.user.id,
         email: data.user.email,
         fullName,
+        isDriver: true,
       },
     },
     { status: 201 }
@@ -77,6 +101,7 @@ export async function PATCH(request: NextRequest) {
   const occupancy = input.occupancy;
   const password =
     typeof input.password === 'string' ? input.password : undefined;
+  const active = typeof input.active === 'boolean' ? input.active : undefined;
 
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -89,8 +114,7 @@ export async function PATCH(request: NextRequest) {
       occupancy !== 'low' &&
       occupancy !== 'medium' &&
       occupancy !== 'full') ||
-    (password !== undefined && password.length > 0 && password.length < 8) ||
-    typeof input.active !== 'boolean'
+    (password !== undefined && password.length > 0 && password.length < 8)
   ) {
     return NextResponse.json(
       { error: 'Periksa nama, email, password baru, dan status akun.' },
@@ -117,6 +141,14 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  // Capture old value for audit
+  const oldValue = {
+    email: currentUser.email,
+    fullName: currentUser.user_metadata?.full_name,
+    occupancy: currentUser.user_metadata?.linusku_occupancy,
+    bannedUntil: currentUser.banned_until,
+  };
+
   const attributes: {
     email: string;
     user_metadata: Record<string, unknown>;
@@ -129,9 +161,9 @@ export async function PATCH(request: NextRequest) {
       full_name: fullName,
       ...(occupancy === undefined ? {} : { linusku_occupancy: occupancy }),
     },
-    ban_duration: input.active ? 'none' : '876000h',
   };
   if (password) attributes.password = password;
+  if (active !== undefined) attributes.ban_duration = active ? 'none' : '876000h';
 
   const { data, error } = await authorization.client.auth.admin.updateUserById(
     id,
@@ -144,6 +176,14 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  const newValue = {
+    email: data.user.email,
+    fullName,
+    occupancy,
+    bannedUntil: data.user.banned_until,
+  };
+
+  await logAdminAction(authorization.client, authorization.user.id, 'update_driver', id, oldValue, newValue, request);
   return NextResponse.json({
     user: {
       id: data.user.id,

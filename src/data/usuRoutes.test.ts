@@ -6,6 +6,7 @@ import {
   isInsideCampus,
   findNearestStop,
   getLinusOperatingStatus,
+  mergeLinuskuSettings,
   projectToRoute,
   routeDistanceToStopKm,
   USU_STOPS,
@@ -96,5 +97,32 @@ describe('USU route utilities', () => {
     expect(
       getLinusOperatingStatus(new Date('2026-11-23T01:30:00.000Z'), settings).isOpen
     ).toBe(true);
+  });
+
+  it('normalizes migrated snake-case settings into the application shape', () => {
+    const settings = mergeLinuskuSettings({
+      service: {
+        service_days: [1, 6],
+        opening_time: '08:15:00',
+        closing_time: '16:45:00',
+        time_zone: 'Asia/Jakarta',
+      },
+      eta: {
+        min_speed_kmh: 10,
+        max_speed_kmh: 55,
+        stale_threshold_seconds: 90,
+      },
+      features: { crowd_reporting_enabled: false },
+    });
+
+    expect(settings.service).toEqual({
+      serviceDays: [1, 6],
+      openingTime: '08:15',
+      closingTime: '16:45',
+      timeZone: 'Asia/Jakarta',
+    });
+    expect(settings.eta.maxSpeedKmh).toBe(55);
+    expect(settings.features.crowdReportingEnabled).toBe(false);
+    expect(settings.features.simulationMode).toBe(false);
   });
 });

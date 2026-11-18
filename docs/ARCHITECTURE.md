@@ -5,7 +5,7 @@
 
 - **Frontend & PWA**: Next.js App Router + Tailwind CSS + Leaflet.
 - **Distribusi posisi**: polling `/api/positions` setiap 4 detik dengan cache tiga detik dan jeda otomatis saat tab tidak aktif.
-- **Database**: Supabase PostgreSQL (`buses`, `stops`, `bus_positions`, `crowd_reports`, `linusku_settings`).
+- **Database**: Supabase PostgreSQL (`buses`, `stops`, `bus_positions`, `crowd_reports`, `linusku_settings_v2`) plus admin audit and GPS history tables.
 - **Pengelolaan**: `/admin` memakai Supabase Auth dan allowlist email server-side; mutasi dilakukan oleh API server, bukan dari browser dengan secret key.
 
 ## 2. Alur Data & Perhitungan ETA
@@ -18,19 +18,21 @@
    - Mahasiswa membuka halaman utama -> membaca `/api/positions`.
    - GPS driver selalu menjadi sumber utama. Laporan mahasiswa hanya dipakai bila belum ada GPS driver aktif pada armada tersebut.
    - Daftar armada aktif, halte, jam layanan, dan geometri rute dibaca dari API publik.
-   - Jika variabel lingkungan Supabase belum diisi, aplikasi otomatis berjalan dalam **Mode Simulasi Lokal** agar UI/UX dan perhitungan ETA tetap bisa diuji.
+   - Pengaturan admin menentukan batas umur GPS, mode simulasi, sumber peta, dan fitur laporan. Tanpa kredensial Supabase, aplikasi otomatis memakai **Mode Simulasi Lokal**.
 3. **Perhitungan ETA Halte**:
    - Lokasi bus dan halte diproyeksikan ke geometri rute; kemajuan dan jarak dihitung menurut panjang kumulatif segmen, bukan jumlah segmen.
-   - `ETA (menit) = jarak rute / kecepatan efektif * 60`, dengan batas bawah kecepatan 12 km/jam. Perkiraan belum memperhitungkan kemacetan atau waktu berhenti.
+   - `ETA (menit) = jarak rute / kecepatan efektif * 60`; kecepatan dibatasi nilai minimum dan maksimum dari pengaturan admin. Perkiraan belum memperhitungkan kemacetan atau waktu berhenti.
    - Urutan halte mengikuti data database ketika Supabase aktif, atau `USU_STOPS` di `src/data/usuRoutes.ts` pada mode lokal.
 
 ## 3. Panel Admin dan Otorisasi
 
 - Admin masuk di `/admin` melalui email/password atau Google OAuth. Hanya `kampuskitaapp@gmail.com` dan `jualbeliusupolmed@gmail.com` yang diizinkan.
 - Setiap endpoint `/api/admin/*` memverifikasi access token dan allowlist di server. Kunci Supabase server hanya digunakan di lingkungan server.
-- Panel mengelola armada, akun dan penugasan driver, status kepadatan pilihan driver, halte dan urutannya, laporan crowd, serta hari dan jam layanan.
-- Pengaturan layanan disimpan pada `linusku_settings`. Perubahan halte dan urutannya digunakan oleh endpoint rute publik dan kalkulasi ETA.
-- Pendaftaran driver mandiri di `/driver` bersifat opsional. Akun baru belum dapat mengirim posisi sebelum ditugaskan oleh admin.
+- Panel menampilkan data pengguna dan driver secara terpisah. Jenis akun disimpan pada `app_metadata` dan hanya dapat diubah admin; data profil pribadi tetap dikelola pengguna pada metadata profilnya.
+- Panel memisahkan daftar Pengguna dan Driver. Hanya admin yang dapat mengubah jenis akun; data profil tetap dapat dikelola pemilik akun, sedangkan penugasan armada ditetapkan admin.
+- Panel mengelola armada, profil, halte/rute, laporan komunitas, jadwal, ETA, penyedia peta, fitur, dan geofence. Pengaturan disimpan per kategori pada `linusku_settings_v2`.
+- Perubahan admin dicatat di `admin_audit_log`; setiap pembaruan GPS diarsipkan ke `bus_position_history` dan dibersihkan otomatis sesuai retensi migrasi.
+- Pendaftaran di `/driver` membuat akun pengguna biasa. Hanya admin yang dapat mengubahnya menjadi driver; akun driver juga harus ditugaskan ke armada sebelum dapat mengirim posisi.
 
 ## 4. Perbandingan: Driver GPS vs Crowdsourcing Mahasiswa
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAdminRequestMetadata, logAdminAction } from '@/lib/adminAudit';
 
 export async function POST(request: NextRequest) {
   const authorization = await requireAdmin(request);
@@ -18,6 +19,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Get old order for audit
+  const { data: oldStops, error: oldError } = await authorization.client
+    .from('stops')
+    .select('id, sequence_order')
+    .order('sequence_order');
+  if (oldError || !oldStops) {
+    return NextResponse.json(
+      { error: `Urutan halte belum dapat diperiksa: ${oldError?.message ?? 'data tidak tersedia'}` },
+      { status: 503 }
+    );
+  }
+
   const { error } = await authorization.client.rpc('admin_reorder_stops', {
     p_stop_ids: ids,
   });
@@ -27,5 +40,17 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   }
+
+  // Log admin action
+  await logAdminAction(authorization.client, {
+    adminId: authorization.user.id,
+    action: 'reorder_stops',
+    targetTable: 'stops',
+    targetId: 'all',
+    oldValue: { stops: oldStops },
+    newValue: { ids },
+    ...getAdminRequestMetadata(request),
+  });
+
   return NextResponse.json({ ok: true });
 }
