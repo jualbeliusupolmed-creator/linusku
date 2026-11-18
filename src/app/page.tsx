@@ -44,6 +44,7 @@ import {
   findNearestStop,
   getLinusOperatingStatus,
   getNextDepartureTimes,
+  getStopsSequenceToDest,
   getUpcomingStop,
   haversineDistanceKm,
 } from '@/data/usuRoutes';
@@ -131,6 +132,12 @@ export default function HomePage() {
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [showGuide, setShowGuide] = useState<boolean>(false);
   const [sortByNearest, setSortByNearest] = useState<boolean>(false);
+  const [nearestStopSuggestion, setNearestStopSuggestion] = useState<{
+    stopId: string;
+    stopName: string;
+    distanceMeters: number;
+  } | null>(null);
+  const [showInfoCard, setShowInfoCard] = useState<boolean>(false);
   const [serviceSettings, setServiceSettings] =
     useState<LinusOperatingSettings>(DEFAULT_OPERATING_SETTINGS);
   const [etaSettings, setEtaSettings] =
@@ -193,6 +200,32 @@ export default function HomePage() {
       localStorage.setItem('linusku:hideQuickGuide', '1');
     } catch {}
   };
+
+  // Deteksi lokasi otomatis saat pertama buka (passive — tidak paksa user)
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    // Hanya coba sekali per sesi, tanpa blocking
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setCurrentLocation({ lat, lng });
+        const nearest = findNearestStop(lat, lng, stops.length ? stops : USU_STOPS);
+        // Jika halte terdeteksi berbeda dari default, tawarkan saran ke user
+        if (nearest.stop.id !== selectedStopId) {
+          setNearestStopSuggestion({
+            stopId: nearest.stop.id,
+            stopName: nearest.stop.name,
+            distanceMeters: nearest.distanceMeters,
+          });
+        }
+      },
+      () => { /* Silent — user mungkin menolak izin */ },
+      { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
+    );
+    // Hanya jalan sekali pada mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Muat pengaturan yang diubah admin beserta geometri rute terbaru.
   useEffect(() => {
@@ -805,6 +838,37 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Saran halte terdekat otomatis */}
+      {nearestStopSuggestion && (
+        <div className="nearest-stop-banner" role="alert">
+          <span className="nearest-stop-banner-text">
+            📍 Kamu terdeteksi dekat <strong>{nearestStopSuggestion.stopName}</strong>
+            {' '}(~{nearestStopSuggestion.distanceMeters} m). Lihat jadwal halte ini?
+          </span>
+          <div className="nearest-stop-banner-actions">
+            <button
+              type="button"
+              className="nearest-stop-accept-btn"
+              onClick={() => {
+                handleSelectStop(nearestStopSuggestion.stopId);
+                setNearestStopSuggestion(null);
+                setToastMessage(`📍 Beralih ke ${nearestStopSuggestion.stopName}`);
+              }}
+            >
+              Ya, ganti halte
+            </button>
+            <button
+              type="button"
+              className="nearest-stop-dismiss-btn"
+              onClick={() => setNearestStopSuggestion(null)}
+              aria-label="Tutup saran halte"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="operations-strip">
         <div
           className={`operating-banner ${
@@ -852,6 +916,19 @@ export default function HomePage() {
               feedMode={feedMode}
               isOperating={operatingStatus.isOpen}
             />
+            {/* Overlay tegas saat bus TIDAK beroperasi — cegah kebingungan "bus hantu" */}
+            {!operatingStatus.isOpen && (
+              <div className="map-closed-overlay" role="status" aria-live="polite">
+                <div className="map-closed-card">
+                  <img src="/stickers/mascot-halte.png" alt="" className="w-14 h-14 object-contain" aria-hidden="true" />
+                  <p className="map-closed-title">Bus Linus Sedang Istirahat</p>
+                  <p className="map-closed-sub">
+                    Pergerakan di bawah adalah <strong>simulasi demo</strong> saja — bukan posisi bus nyata.
+                    <br />Beroperasi <strong>Senin–Jumat 07.00–17.00 WIB</strong>.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -1017,6 +1094,43 @@ export default function HomePage() {
                         </div>
                       )}
 
+                      {/* Alur Mini Rute Loop Menuju Halte Pilihan Penumpang */}
+                      {(() => {
+                        const routeSequence = getStopsSequenceToDest(bus, selectedStop, stops, activePolyline);
+                        if (!routeSequence || routeSequence.length === 0) return null;
+                        return (
+                          <div className="mt-2 rounded-lg bg-emerald-50/80 p-2 border border-emerald-200 text-xs">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900 mb-1">
+                              <span>Alur Menuju Halte Ini:</span>
+                              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-semibold">
+                                {routeSequence.length === 1 ? 'Halte berikutnya!' : `${routeSequence.length - 1} halte lagi`}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 overflow-x-auto pb-0.5 text-[11px] text-emerald-800">
+                              {routeSequence.map((seqStop, seqIdx) => {
+                                const isCurrentTarget = seqStop.id === selectedStop.id;
+                                return (
+                                  <span key={seqStop.id} className="flex items-center gap-1 shrink-0">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                        isCurrentTarget
+                                          ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                                          : 'bg-white border border-emerald-200 text-slate-700'
+                                      }`}
+                                    >
+                                      {seqStop.name.replace('Halte ', '')}
+                                    </span>
+                                    {seqIdx < routeSequence.length - 1 && (
+                                      <span className="text-emerald-400 font-bold text-[10px]">→</span>
+                                    )}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Status Kecepatan: Berhenti vs Melaju */}
                       <div className="mt-0.5 text-xs">
                         {isStationary ? (
@@ -1083,8 +1197,8 @@ export default function HomePage() {
 
           <section className="utility-panel" aria-label="Lokasi dan pelaporan penumpang">
             <div className="utility-heading">
-              <strong>Bantu Info Linus</strong>
-              <small>Lapor posisi & halte terdekat</small>
+              <strong>Bantu Info Linus (Opsional)</strong>
+              <small>Lapor sukarela jika melihat bus lewat</small>
             </div>
 
             <button
@@ -1105,10 +1219,10 @@ export default function HomePage() {
             <div className="mt-3 border border-slate-200 bg-slate-50 p-2.5">
               <div className="flex items-center justify-between gap-1 text-xs font-bold text-slate-800">
                 <span>Melihat Linus di Halte {selectedStop.name}?</span>
-                <span className="text-[10px] text-slate-500 font-normal">Crowdsourcing</span>
+                <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-1.5 py-0.2 rounded">Sukarela</span>
               </div>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                Pilih kondisi muatan bus saat terlihat:
+                Bantu teman kampus: pilih kondisi muatan saat bus terlihat
               </p>
 
               <div className="density-chips">
@@ -1185,6 +1299,9 @@ export default function HomePage() {
                   Sedang di dalam bus? Kirim GPS
                 </button>
               </div>
+              <p className="mt-1.5 text-[10px] text-slate-500">
+                💡 Fitur gotong royong mahasiswa. Bukan tombol panggil bus. Laporan terverifikasi kedaluwarsa dalam 3 menit.
+              </p>
             </div>
 
             {crowdStatus && (
@@ -1193,6 +1310,43 @@ export default function HomePage() {
               </p>
             )}
           </section>
+
+          {/* Panduan & Aturan Operasional Linus */}
+          <div className="passenger-faq-card">
+            <div
+              className="passenger-faq-title"
+              onClick={() => setShowInfoCard(!showInfoCard)}
+              role="button"
+              tabIndex={0}
+            >
+              <span className="flex items-center gap-1.5 font-bold">
+                <Info size={15} className="text-emerald-700" />
+                Panduan &amp; Aturan Naik Linus USU
+              </span>
+              <span className="text-xs text-slate-500">{showInfoCard ? '▲ Tutup' : '▼ Info Naik Bus'}</span>
+            </div>
+
+            {showInfoCard && (
+              <div className="passenger-faq-grid">
+                <div className="passenger-faq-item">
+                  <strong>🎟️ 100% Gratis</strong>
+                  <p>Fasilitas resmi kampus USU untuk mahasiswa, dosen, &amp; staf tanpa biaya.</p>
+                </div>
+                <div className="passenger-faq-item">
+                  <strong>💳 Tanpa Tap Kartu</strong>
+                  <p>Tidak perlu tap KTM atau kartu khusus. Cukup antre dan langsung naik.</p>
+                </div>
+                <div className="passenger-faq-item">
+                  <strong>🚏 Wajib di Halte Resmi</strong>
+                  <p>Naik &amp; turun hanya di halte bertanda Linus demi keselamatan lalu lintas.</p>
+                </div>
+                <div className="passenger-faq-item">
+                  <strong>🔄 Rute Loop 1 Arah</strong>
+                  <p>Linus berputar keliling kampus searah jarum jam. Cek alur rute sebelum naik.</p>
+                </div>
+              </div>
+            )}
+          </div>
 
           <section className="stops-panel" id="halte" aria-labelledby="stops-title">
             <div className="stops-head">

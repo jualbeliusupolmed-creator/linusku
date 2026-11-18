@@ -1426,6 +1426,45 @@ export function interpolateAlongRoute(
 }
 
 /**
+ * Mengembalikan urutan halte yang akan dilewati bus sebelum mencapai halte tujuan.
+ * Berguna untuk menampilkan "mini-rute" kepada penumpang.
+ * Contoh: bus di FISIP, tujuan FK → returns [FEB, Perpus, FISIP, Teknik, Hukum, Pintu1, FK]
+ */
+export function getStopsSequenceToDest(
+  bus: Pick<BusPosition, 'lat' | 'lng'> & Partial<Pick<BusPosition, 'speedKmh'>>,
+  destStop: BusStop,
+  stops: BusStop[] = USU_STOPS,
+  polyline: [number, number][] = ROUTE_POLYLINE
+): BusStop[] {
+  if (!stops || stops.length === 0) return [];
+  const activeLine = polyline.length >= 2 ? polyline : ROUTE_POLYLINE;
+
+  // Sort halte by sequenceOrder
+  const ordered = [...stops].sort((a, b) => a.sequenceOrder - b.sequenceOrder);
+  const n = ordered.length;
+
+  // Find which stop is "next" after the bus
+  const upcoming = getUpcomingStop(bus, stops, polyline);
+  if (!upcoming) return [];
+
+  const upcomingIdx = ordered.findIndex(s => s.id === upcoming.stop.id);
+  if (upcomingIdx === -1) return [];
+
+  const destIdx = ordered.findIndex(s => s.id === destStop.id);
+  if (destIdx === -1) return [];
+
+  // Traverse the loop from upcoming → dest
+  const result: BusStop[] = [];
+  let idx = upcomingIdx;
+  for (let i = 0; i < n; i++) {
+    result.push(ordered[idx]);
+    if (ordered[idx].id === destStop.id) break;
+    idx = (idx + 1) % n;
+  }
+  return result;
+}
+
+/**
  * Menemukan halte tujuan berikutnya yang akan dilewati bus di sepanjang rute loop.
  */
 export function getUpcomingStop(

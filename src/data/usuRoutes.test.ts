@@ -9,6 +9,7 @@ import {
   estimateEtaDetails,
   estimateEtaMinutes,
   getNextDepartureTimes,
+  getStopsSequenceToDest,
   getTrafficMultiplier,
   getUpcomingStop,
   haversineDistanceKm,
@@ -402,5 +403,13 @@ describe('schedule and traffic helpers', () => {
     expect(upcoming).not.toBeNull();
     expect(upcoming?.stop.id).not.toBe(firstStop.id);
     expect(upcoming?.distanceKm).toBeGreaterThan(0);
+  });
+
+  it('generates the sequence of stops towards the destination stop', () => {
+    const busPos = { lat: USU_STOPS[0].lat, lng: USU_STOPS[0].lng, speedKmh: 20 };
+    const dest = USU_STOPS[4];
+    const sequence = getStopsSequenceToDest(busPos, dest, USU_STOPS);
+    expect(sequence.length).toBeGreaterThan(0);
+    expect(sequence[sequence.length - 1].id).toBe(dest.id);
   });
 });

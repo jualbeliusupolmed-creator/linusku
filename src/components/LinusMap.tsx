@@ -10,6 +10,7 @@ import {
   Marker,
   Popup,
   CircleMarker,
+  Tooltip,
   useMap,
 } from 'react-leaflet';
 import L from 'leaflet';
@@ -368,6 +369,16 @@ export default function LinusMap({
                 click: () => onSelectStop(stop),
               }}
             >
+              <Tooltip
+                permanent={isSelected}
+                direction="top"
+                offset={[0, -9]}
+                className="linus-stop-tooltip"
+              >
+                <span className="text-[11px] font-bold text-slate-800">
+                  {stop.name.replace('Halte ', '')}
+                </span>
+              </Tooltip>
               <Popup>
                 <div className="min-w-[170px] space-y-1">
                   <p className="map-popup-name">{stop.name}</p>

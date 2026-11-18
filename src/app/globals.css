@@ -9,10 +9,19 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   height: 100%;
   overflow-x: clip;
+}
+
+#peta,
+#halte {
+  scroll-margin-top: 64px;
 }
 
 body {
@@ -1583,4 +1592,163 @@ body {
   color: #ffffff;
   border-color: #059669;
 }
+
+/* ========================================================
+   Enhanced Tooltip, Closed Overlay & Suggestion Banner
+   ======================================================== */
+.linus-stop-tooltip {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #10b981 !important;
+  border-radius: 6px !important;
+  padding: 2px 7px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+  font-family: inherit !important;
+}
+
+.linus-stop-tooltip::before {
+  border-top-color: #10b981 !important;
+}
+
+.nearest-stop-banner {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.8125rem;
+}
+
+.nearest-stop-banner-text {
+  flex: 1;
+}
+
+.nearest-stop-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.nearest-stop-accept-btn {
+  background-color: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nearest-stop-accept-btn:hover {
+  background-color: #1d4ed8;
+}
+
+.nearest-stop-dismiss-btn {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nearest-stop-dismiss-btn:hover {
+  color: #1e40af;
+}
+
+.map-closed-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: auto;
+}
+
+.map-closed-card {
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 18px 20px;
+  max-width: 340px;
+  text-align: center;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.map-closed-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.map-closed-sub {
+  font-size: 0.775rem;
+  color: #475569;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.passenger-faq-card {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+
+.passenger-faq-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.passenger-faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.passenger-faq-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+}
+
+.passenger-faq-item strong {
+  display: block;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.passenger-faq-item p {
+  color: #64748b;
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
 
