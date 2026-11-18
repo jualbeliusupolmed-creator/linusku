@@ -230,12 +230,25 @@ export function estimateEtaMinutes(
   return Math.max(minutes, 1);
 }
 
+function getRouteMetrics(polyline: [number, number][]) {
+  const segmentLengthsKm = polyline.slice(1).map((point, index) => {
+    const previous = polyline[index];
+    return haversineDistanceKm(previous[0], previous[1], point[0], point[1]);
+  });
+
+  return {
+    segmentLengthsKm,
+    totalRouteKm: segmentLengthsKm.reduce((total, length) => total + length, 0),
+  };
+}
+
 export function projectToRoute(
   lat: number,
   lng: number,
   polyline: [number, number][] = ROUTE_POLYLINE
 ): { lat: number; lng: number; progress: number; distanceKm: number } {
   const activeLine = polyline.length >= 2 ? polyline : ROUTE_POLYLINE;
+  const { segmentLengthsKm, totalRouteKm } = getRouteMetrics(activeLine);
 
   let best = {
     lat: activeLine[0][0],
@@ -244,7 +257,7 @@ export function projectToRoute(
     distanceKm: Number.POSITIVE_INFINITY,
   };
 
-  let segmentProgress = 0;
+  let distanceAlongRouteKm = 0;
   const totalSegments = activeLine.length - 1;
 
   for (let i = 0; i < totalSegments; i++) {
@@ -275,11 +288,14 @@ export function projectToRoute(
       best = {
         lat: projectedLat,
         lng: projectedLng,
-        progress: segmentProgress + t / totalSegments,
+        progress:
+          totalRouteKm > 0
+            ? (distanceAlongRouteKm + segmentLengthsKm[i] * t) / totalRouteKm
+            : 0,
         distanceKm,
       };
     }
-    segmentProgress += 1 / totalSegments;
+    distanceAlongRouteKm += segmentLengthsKm[i];
   }
   return best;
 }
@@ -295,13 +311,7 @@ export function routeDistanceToStopKm(
   const stopPoint = projectToRoute(stop.lat, stop.lng, activeLine);
   let progressDelta = stopPoint.progress - bus.progress;
   if (progressDelta < 0) progressDelta += 1;
-
-  const totalRouteKm = activeLine.slice(1).reduce((total, point, index) => {
-    const previous = activeLine[index];
-    return (
-      total + haversineDistanceKm(previous[0], previous[1], point[0], point[1])
-    );
-  }, 0);
+  const { totalRouteKm } = getRouteMetrics(activeLine);
 
   return Math.max(0, totalRouteKm * progressDelta);
 }
@@ -319,10 +329,28 @@ export function interpolateAlongRoute(
 } {
   const activeLine = polyline.length >= 2 ? polyline : ROUTE_POLYLINE;
   const totalSegments = activeLine.length - 1;
+  const { segmentLengthsKm, totalRouteKm } = getRouteMetrics(activeLine);
   const wrapped = ((progress % 1) + 1) % 1;
-  const scaled = wrapped * totalSegments;
-  const index = Math.min(Math.floor(scaled), totalSegments - 1);
-  const t = scaled - index;
+  const targetDistanceKm = wrapped * totalRouteKm;
+  let distanceAlongRouteKm = 0;
+  let index = totalSegments - 1;
+  let t = 1;
+
+  for (let i = 0; i < totalSegments; i++) {
+    const segmentLengthKm = segmentLengthsKm[i];
+    if (
+      targetDistanceKm <= distanceAlongRouteKm + segmentLengthKm ||
+      i === totalSegments - 1
+    ) {
+      index = i;
+      t =
+        segmentLengthKm > 0
+          ? (targetDistanceKm - distanceAlongRouteKm) / segmentLengthKm
+          : 0;
+      break;
+    }
+    distanceAlongRouteKm += segmentLengthKm;
+  }
 
   const [lat1, lng1] = activeLine[index];
   const [lat2, lng2] = activeLine[index + 1];

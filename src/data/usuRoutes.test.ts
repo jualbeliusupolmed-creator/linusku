@@ -35,6 +35,26 @@ describe('USU route utilities', () => {
     expect(projected.progress).toBeLessThanOrEqual(1);
   });
 
+  it('uses traveled distance rather than segment count for route progress and ETA distance', () => {
+    const route: [number, number][] = [
+      [0, 0],
+      [0, 0.01],
+      [0.001, 0.01],
+    ];
+    const stop = { ...USU_STOPS[0], lat: 0, lng: 0.01 };
+    const projected = projectToRoute(0, 0.005, route);
+    const expectedDistanceKm = haversineDistanceKm(0, 0.005, 0, 0.01);
+
+    expect(projected.progress).toBeCloseTo(0.455, 2);
+    expect(
+      routeDistanceToStopKm(0, 0.005, stop, route)
+    ).toBeCloseTo(expectedDistanceKm, 2);
+    expect(interpolateAlongRoute(projected.progress, route).lng).toBeCloseTo(
+      0.005,
+      4
+    );
+  });
+
   it('computes forward route distance along the campus loop', () => {
     const firstStop = USU_STOPS[0];
     const nextStop = USU_STOPS[1];

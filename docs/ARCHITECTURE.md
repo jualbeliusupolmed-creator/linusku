@@ -3,8 +3,8 @@
 ## 1. Ringkasan Sistem
 **LINUSKU** adalah aplikasi web/PWA ringan untuk memantau posisi dan estimasi waktu tiba (ETA) bus **Lintas USU (Linus)** antar fakultas dan halte di Kampus USU Padang Bulan secara *real-time*.
 
-- **Frontend & PWA**: Next.js 14 (App Router) + Tailwind CSS + Leaflet (OpenStreetMap — gratis tanpa batas kuota API Maps).
-- **Real-Time Engine**: Supabase Realtime (`postgres_changes` pada tabel `bus_positions` + opsional *Broadcast Channel* `linus:live`).
+- **Frontend & PWA**: Next.js App Router + Tailwind CSS + Leaflet.
+- **Distribusi posisi**: polling `/api/positions` setiap 4 detik dengan cache tiga detik dan jeda otomatis saat tab tidak aktif.
 - **Database**: Supabase PostgreSQL (`buses`, `stops`, `bus_positions`, `crowd_reports`).
 
 ## 2. Alur Data & Perhitungan ETA
@@ -12,11 +12,13 @@
    - Browser HP di bus mengambil koordinat lewat `navigator.geolocation.watchPosition` setiap 3–5 detik.
    - Data `(bus_id, lat, lng, speed_kmh, occupancy, updated_at)` di-*upsert* ke tabel `bus_positions`.
 2. **Peta Penumpang (`/`)**:
-   - Mahasiswa membuka halaman utama -> langsung subscribe ke Supabase Realtime `bus_positions`.
+   - Mahasiswa membuka halaman utama -> membaca `/api/positions`.
+   - GPS driver selalu menjadi sumber utama. Laporan mahasiswa hanya dipakai bila belum ada GPS driver aktif pada armada tersebut.
    - Jika variabel lingkungan Supabase belum diisi, aplikasi otomatis berjalan dalam **Mode Simulasi Lokal** agar UI/UX dan perhitungan ETA tetap bisa diuji.
 3. **Perhitungan ETA Halte**:
-   - Jarak bus ke setiap halte dihitung dengan rumus **Haversine** mengikuti segmen rute melingkar Kampus Padang Bulan (Pintu 1 → Hukum → FISIP → Perpustakaan → Biro/Pancasila → FEB → FMIPA → Vokasi/Pintu 4 → Teknik → Kedokteran/RS USU → kembali ke Pintu 1).
-   - `ETA (menit) = (Jarak Rute dalam km / Kecepatan Rata-rata 18 km/jam) * 60 + (Jumlah Halte Dilewati * 0,4 menit)`.
+   - Lokasi bus dan halte diproyeksikan ke geometri rute; kemajuan dan jarak dihitung menurut panjang kumulatif segmen, bukan jumlah segmen.
+   - `ETA (menit) = jarak rute / kecepatan efektif * 60`, dengan batas bawah kecepatan 12 km/jam. Perkiraan belum memperhitungkan kemacetan atau waktu berhenti.
+   - Urutan halte mengikuti `USU_STOPS` di `src/data/usuRoutes.ts`; seed database harus diperbarui bersamaan jika data rute berubah.
 
 ## 3. Perbandingan: Driver GPS vs Crowdsourcing Mahasiswa
 

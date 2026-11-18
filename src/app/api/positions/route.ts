@@ -7,13 +7,17 @@ import {
 import { getCampusRoadPolyline } from '@/lib/campusRoute';
 import { getCrowdPositions } from '@/lib/crowdReports';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  getSupabaseAdminClient,
+  isSupabaseAdminConfigured,
+} from '@/lib/supabaseServer';
 
 const CACHE_TTL_MS = 3000;
 const ACTIVE_WINDOW_MS = 45000;
 
 interface CachedPayload {
   buses: BusPosition[];
-  mode: 'live' | 'simulation';
+  mode: 'live' | 'community' | 'simulation' | 'offline';
   cachedAt: string;
 }
 
@@ -104,8 +108,10 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
     throw new Error(error?.message ?? 'Gagal membaca posisi armada');
   }
 
-  const validBuses: BusPosition[] = data
-    .filter((row) => isInsideCampus(row.lat, row.lng))
+  const officialBuses: BusPosition[] = data
+    .filter(
+      (row) => row.source_type === 'driver' && isInsideCampus(row.lat, row.lng)
+    )
     .map((row) => ({
       busId: row.bus_id,
       name: `${row.bus_id} — Rute Kampus`,
@@ -118,12 +124,15 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
       updatedAt: row.updated_at,
     }));
 
-  const { data: crowdData, error: crowdError } = await supabase
-    .from('crowd_reports')
-    .select('bus_id, lat, lng, occupancy, created_at')
-    .gte('created_at', cutoffIso)
-    .not('bus_id', 'is', null)
-    .order('created_at', { ascending: false });
+  const adminSupabase = getSupabaseAdminClient();
+  const { data: crowdData, error: crowdError } = adminSupabase
+    ? await adminSupabase
+        .from('crowd_reports')
+        .select('bus_id, lat, lng, occupancy, created_at')
+        .gte('created_at', cutoffIso)
+        .not('bus_id', 'is', null)
+        .order('created_at', { ascending: false })
+    : { data: [], error: null };
 
   if (crowdError || !crowdData) {
     throw new Error(crowdError?.message ?? 'Gagal membaca laporan crowdsourcing');
@@ -152,21 +161,13 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
     });
   }
 
-  const crowdPositions = [
-    ...latestCrowdByBus.values(),
-    ...getCrowdPositions(),
-  ];
-  const mergedBuses = validBuses.map((official) => {
-    const crowd = crowdPositions.find((item) => item.busId === official.busId);
-    if (
-      crowd &&
-      new Date(crowd.updatedAt).getTime() >
-        new Date(official.updatedAt).getTime()
-    ) {
-      return crowd;
-    }
-    return official;
-  });
+  const memoryCrowdPositions = isSupabaseConfigured ? [] : getCrowdPositions();
+  const crowdPositions = [...latestCrowdByBus.values(), ...memoryCrowdPositions]
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  const mergedBuses = [...officialBuses];
   for (const crowd of crowdPositions) {
     if (!mergedBuses.some((bus) => bus.busId === crowd.busId)) {
       mergedBuses.push(crowd);
@@ -175,7 +176,7 @@ async function fetchFreshPositions(): Promise<CachedPayload> {
 
   return {
     buses: mergedBuses,
-    mode: 'live',
+    mode: officialBuses.length > 0 ? 'live' : mergedBuses.length > 0 ? 'community' : 'offline',
     cachedAt: new Date(nowMs).toISOString(),
   };
 }
@@ -221,8 +222,9 @@ export async function GET() {
       });
     }
 
-    const message =
-      err instanceof Error ? err.message : 'Terjadi kesalahan server';
-    return NextResponse.json({ error: message, buses: [] }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Posisi bus belum dapat dimuat.', buses: [], mode: 'offline' },
+      { status: 503 }
+    );
   }
 }

@@ -34,7 +34,7 @@ export default function DriverPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [occupancy, setOccupancy] = useState<OccupancyLevel>('medium');
   const [isTracking, setIsTracking] = useState(false);
-  const [useMockGps, setUseMockGps] = useState(true);
+  const [useMockGps, setUseMockGps] = useState(!isSupabaseConfigured);
   const [wakeLockActive, setWakeLockActive] = useState(false);
   const [lastCoords, setLastCoords] = useState<{
     lat: number;
@@ -239,6 +239,10 @@ export default function DriverPage() {
   };
 
   const startTracking = async () => {
+    if (useMockGps && isSupabaseConfigured) {
+      setStatusMessage('Simulasi GPS tidak dapat disiarkan ke peta publik. Matikan simulasi untuk memakai GPS perangkat.');
+      return;
+    }
     if (!sessionEmail && isSupabaseConfigured) {
       setStatusMessage('Login driver diperlukan sebelum memulai pelacakan.');
       return;
@@ -386,7 +390,7 @@ export default function DriverPage() {
               </label>
               <select
                 value={busId}
-                disabled={isTracking}
+                disabled={isTracking || isSupabaseConfigured}
                 onChange={(e) => setBusId(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-emerald-500"
               >
@@ -434,7 +438,7 @@ export default function DriverPage() {
                 onChange={(e) => setUseMockGps(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-emerald-600"
               />
-              Gunakan simulasi rute kampus (untuk tes dari laptop)
+              Gunakan simulasi rute kampus (hanya untuk uji lokal tanpa Supabase)
             </label>
 
             {!isTracking ? (

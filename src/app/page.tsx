@@ -21,7 +21,6 @@ import {
   estimateEtaMinutes,
   findNearestStop,
   getLinusOperatingStatus,
-  interpolateAlongRoute,
   isInsideCampus,
 } from '@/data/usuRoutes';
 
@@ -37,36 +36,6 @@ const LinusMap = dynamic(() => import('@/components/LinusMap'), {
 const STORAGE_SELECTED_STOP_KEY = 'linusku:selectedStopId';
 const STORAGE_FAVORITE_STOPS_KEY = 'linusku:favoriteStopIds';
 const POLL_INTERVAL_MS = 4000;
-
-const INITIAL_SIMULATED_BUSES: Array<{
-  busId: string;
-  name: string;
-  offset: number;
-  speedKmh: number;
-  occupancy: BusPosition['occupancy'];
-}> = [
-  {
-    busId: 'LINUS-01',
-    name: 'Linus 01 Rute Kampus',
-    offset: 0.05,
-    speedKmh: 20,
-    occupancy: 'medium',
-  },
-  {
-    busId: 'LINUS-02',
-    name: 'Linus 02 Rute Kampus',
-    offset: 0.42,
-    speedKmh: 18,
-    occupancy: 'low',
-  },
-  {
-    busId: 'LINUS-03',
-    name: 'Linus 03 Rute Kampus',
-    offset: 0.74,
-    speedKmh: 22,
-    occupancy: 'full',
-  },
-];
 
 const occupancyBadge: Record<
   BusPosition['occupancy'],
@@ -87,29 +56,13 @@ const occupancyBadge: Record<
 };
 
 export default function HomePage() {
-  const [buses, setBuses] = useState<BusPosition[]>(() => {
-    const now = new Date().toISOString();
-    return INITIAL_SIMULATED_BUSES.map((item) => {
-      const pos = interpolateAlongRoute(item.offset);
-      return {
-        busId: item.busId,
-        name: item.name,
-        lat: pos.lat,
-        lng: pos.lng,
-        speedKmh: item.speedKmh,
-        heading: pos.heading,
-        occupancy: item.occupancy,
-        sourceType: 'simulator',
-        updatedAt: now,
-      };
-    });
-  });
+  const [buses, setBuses] = useState<BusPosition[]>([]);
 
   const [selectedStopId, setSelectedStopId] = useState<string>(USU_STOPS[0].id);
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
   const [favoriteStopIds, setFavoriteStopIds] = useState<string[]>([]);
   const [stopQuery, setStopQuery] = useState('');
-  const [feedMode, setFeedMode] = useState<'live' | 'simulation'>('simulation');
+  const [feedMode, setFeedMode] = useState<'live' | 'community' | 'simulation' | 'offline'>('offline');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -200,7 +153,7 @@ export default function HomePage() {
 
       const payload = (await res.json()) as {
         buses?: BusPosition[];
-        mode?: 'live' | 'simulation';
+        mode?: 'live' | 'community' | 'simulation' | 'offline';
         cachedAt?: string;
         error?: string;
       };
@@ -216,7 +169,8 @@ export default function HomePage() {
       );
       setStatusMessage('');
     } catch {
-      setStatusMessage('Menggunakan estimasi lokal (menunggu jaringan)…');
+      setFeedMode('offline');
+      setStatusMessage('Koneksi posisi terputus. Data yang tampil mungkin sudah lama.');
     } finally {
       if (showSpinner) setIsRefreshing(false);
     }
@@ -383,7 +337,7 @@ export default function HomePage() {
             </button>
             <span className={`live-chip focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${feedMode === 'live' ? 'is-live' : ''}`} role="status">
               <Radio size={16} />
-              <span>{feedMode === 'live' ? 'Live Kampus' : 'Mode Simulasi'}</span>
+              <span>{feedMode === 'live' ? 'Live Kampus' : feedMode === 'community' ? 'Laporan komunitas' : feedMode === 'simulation' ? 'Mode Simulasi' : 'Data tidak tersedia'}</span>
             </span>
             <Link href="/driver" className="driver-link active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
               <Navigation size={16} />
@@ -426,7 +380,9 @@ export default function HomePage() {
             </div>
 
             {stopEtas.length === 0 ? (
-              <p className="arrival-row">Belum ada armada Linus aktif.</p>
+              <p className="arrival-row">
+                {feedMode === 'offline' ? 'Data posisi belum tersedia. Coba segarkan kembali.' : 'Belum ada armada Linus aktif.'}
+              </p>
             ) : (
               stopEtas.map(({ bus, etaMinutes }) => (
                 <div className="arrival-row" key={bus.busId}>
@@ -439,10 +395,13 @@ export default function HomePage() {
                       <Users size={13} />
                       {occupancyBadge[bus.occupancy].label}
                     </span>
+                    <small className="block text-slate-500">
+                      {bus.sourceType === 'driver' ? 'GPS driver' : bus.sourceType === 'crowd' ? 'Laporan mahasiswa' : 'Simulasi'} · diperbarui {new Date(bus.updatedAt).toLocaleTimeString('id-ID')}
+                    </small>
                   </div>
                   <div className="eta">
                     {etaMinutes}
-                    <small>menit<br />{Math.round(bus.speedKmh)} km/j</small>
+                    <small>menit · estimasi<br />{Math.round(bus.speedKmh)} km/j</small>
                   </div>
                 </div>
               ))
@@ -502,6 +461,9 @@ export default function HomePage() {
                 Bagikan lokasi
               </button>
             </div>
+            <p className="utility-status">
+              Saat mengirim, lokasi perangkat ini dan tingkat kepadatan yang dipilih akan dibagikan sebagai laporan posisi bus. Kirim hanya saat kamu sedang berada di Linus.
+            </p>
             {crowdStatus && (
               <p className="utility-status" role="status">{crowdStatus}</p>
             )}

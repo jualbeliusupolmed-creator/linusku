@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   isInsideCampus,
+  projectToRoute,
   type OccupancyLevel,
 } from '@/data/usuRoutes';
 import { saveCrowdReport } from '@/lib/crowdReports';
-import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  getSupabaseAdminClient,
+  isSupabaseAdminConfigured,
+} from '@/lib/supabaseServer';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 const RATE_LIMIT_MS = 30000;
+const MAX_RATE_LIMIT_KEYS = 1000;
+const MAX_DISTANCE_FROM_ROUTE_KM = 0.3;
 const recentRequests = new Map<string, number>();
 
 export async function POST(request: NextRequest) {
@@ -34,6 +41,12 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+  if (projectToRoute(lat, lng).distanceKm > MAX_DISTANCE_FROM_ROUTE_KM) {
+    return NextResponse.json(
+      { error: 'Lokasi harus berada dekat rute Linus.' },
+      { status: 400 }
+    );
+  }
   if (!['LINUS-01', 'LINUS-02', 'LINUS-03'].includes(busId)) {
     return NextResponse.json(
       { error: 'Pilih armada Linus yang valid.' },
@@ -48,28 +61,58 @@ export async function POST(request: NextRequest) {
   }
 
   const updatedAt = new Date().toISOString();
-  saveCrowdReport({ busId, lat, lng, occupancy, updatedAt });
-
-  if (isSupabaseConfigured) {
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      const { error } = await supabase.from('crowd_reports').insert({
-        bus_id: busId,
-        lat,
-        lng,
-        occupancy,
-        created_at: updatedAt,
-      });
-      if (error) {
-        return NextResponse.json(
-          { error: 'Laporan diterima sementara, tetapi belum tersimpan.' },
-          { status: 503 }
-        );
-      }
+  if (recentRequests.size >= MAX_RATE_LIMIT_KEYS) {
+    for (const [requestKey, requestTime] of recentRequests) {
+      if (now - requestTime >= RATE_LIMIT_MS) recentRequests.delete(requestKey);
+      if (recentRequests.size < MAX_RATE_LIMIT_KEYS) break;
     }
   }
-
   recentRequests.set(key, now);
+  if (!isSupabaseAdminConfigured) {
+    if (isSupabaseConfigured) {
+      return NextResponse.json(
+        { error: 'Layanan laporan sedang disiapkan. Coba lagi nanti.' },
+        { status: 503 }
+      );
+    }
+    saveCrowdReport({ busId, lat, lng, occupancy, updatedAt });
+    return NextResponse.json({
+      ok: true,
+      mode: 'local',
+      busId,
+      occupancy,
+      updatedAt,
+    });
+  }
+
+  const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Layanan laporan belum dikonfigurasi.' },
+      { status: 503 }
+    );
+  }
+
+  const [{ error }] = await Promise.all([
+    supabase.from('crowd_reports').insert({
+      bus_id: busId,
+      lat,
+      lng,
+      occupancy,
+      created_at: updatedAt,
+    }),
+    supabase
+      .from('crowd_reports')
+      .delete()
+      .lt('created_at', new Date(now - 24 * 60 * 60 * 1000).toISOString()),
+  ]);
+  if (error) {
+    return NextResponse.json(
+      { error: 'Laporan belum dapat disimpan. Coba lagi sebentar.' },
+      { status: 503 }
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     busId,

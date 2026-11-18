@@ -24,7 +24,7 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
-        error: error.message,
+        error: 'Layanan data tidak tersedia.',
         timestamp: new Date().toISOString(),
       },
       { status: 503 }
