@@ -183,6 +183,36 @@ insert into public.buses (id, name, plate_number, capacity, is_active) values
 on conflict (id) do nothing;
 
 -- Seed 10 halte utama Kampus USU Padang Bulan
+-- Pindahkan urutan lama sementara agar pertukaran nilai tidak melanggar UNIQUE
+-- saat PostgreSQL memproses baris upsert satu per satu.
+with linus_stop_ids(id) as (
+  values
+    ('halte-pintu-1'),
+    ('halte-fk'),
+    ('halte-biro'),
+    ('halte-vokasi'),
+    ('halte-fmipa'),
+    ('halte-feb'),
+    ('halte-perpus'),
+    ('halte-fisip'),
+    ('halte-teknik'),
+    ('halte-hukum')
+),
+bounds as (
+  select
+    coalesce((select max(sequence_order) from public.stops), 0) as max_sequence,
+    coalesce((
+      select min(stop.sequence_order)
+      from public.stops as stop
+      join linus_stop_ids using (id)
+    ), 0) as min_sequence
+)
+update public.stops as stop
+set sequence_order =
+  stop.sequence_order + bounds.max_sequence - bounds.min_sequence + 1
+from bounds
+where stop.id in (select id from linus_stop_ids);
+
 insert into public.stops (id, name, area, lat, lng, sequence_order) values
   ('halte-pintu-1', 'Halte Pintu 1 / Gelanggang', 'Jl. Universitas (Pintu 1)', 3.5656, 98.6594, 1),
   ('halte-fk', 'Halte FK / RS USU', 'Jl. Dr. Mansyur', 3.5673, 98.6552, 2),
