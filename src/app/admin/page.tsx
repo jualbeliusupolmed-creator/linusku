@@ -19,6 +19,7 @@ import {
   Clock3,
   Database,
   Download,
+  ExternalLink,
   FileText,
   LogOut,
   MapPin,
@@ -424,6 +425,7 @@ export default function AdminPage() {
   const [lastPositionCheck, setLastPositionCheck] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [isInIframe, setIsInIframe] = useState(false);
   const [busEditorOpen, setBusEditorOpen] = useState(false);
   const [editingBusId, setEditingBusId] = useState<string | null>(null);
   const [busForm, setBusForm] = useState<BusForm>(EMPTY_BUS_FORM);
@@ -618,6 +620,47 @@ export default function AdminPage() {
       clearTimeout(fallbackTimer);
       authListener.subscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    setIsInIframe(typeof window !== 'undefined' && window.self !== window.top);
+
+    // Tangkap jika window ini dibuka sebagai popup callback OAuth Google
+    if (typeof window !== 'undefined' && window.opener && window.location.hash.includes('access_token')) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        supabase.auth.getSession().then(({ data: sessData }) => {
+          if (sessData.session) {
+            try {
+              window.opener.postMessage(
+                { type: 'LINUSKU_OAUTH_SESSION', session: sessData.session },
+                '*'
+              );
+            } catch {
+              // Abaikan jika opener tertutup
+            }
+            setTimeout(() => {
+              window.close();
+            }, 400);
+          }
+        });
+      }
+    }
+
+    // Tangkap pesan sesi dari popup jika kita adalah jendela opener (misalnya di dalam iframe)
+    const handleAuthMessage = async (event: MessageEvent) => {
+      if (event.data?.type === 'LINUSKU_OAUTH_SESSION' && event.data?.session) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          await supabase.auth.setSession(event.data.session);
+          setSession(event.data.session);
+          setAuthLoading(false);
+          setAuthError('');
+        }
+      }
+    };
+    window.addEventListener('message', handleAuthMessage);
+    return () => window.removeEventListener('message', handleAuthMessage);
   }, []);
 
   useEffect(() => {
@@ -1081,15 +1124,64 @@ export default function AdminPage() {
     }
     setAuthLoading(true);
     setAuthError('');
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: new URL(window.location.pathname, window.location.origin).toString(),
-        queryParams: { prompt: 'select_account' },
-      },
-    });
-    if (error) {
-      setAuthError(`Login Google gagal: ${error.message}`);
+
+    const inIframe = typeof window !== 'undefined' && window.self !== window.top;
+
+    // Google OAuth melarang keras dimuat dalam <iframe> (X-Frame-Options: DENY -> 403 Forbidden).
+    // Jika berada dalam iframe, kita buka jendela popup atau redirect window teratas.
+    let popup: Window | null = null;
+    if (inIframe) {
+      const width = 500;
+      const height = 650;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      popup = window.open(
+        'about:blank',
+        'linusku_oauth_popup',
+        `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
+      );
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/admin`,
+          queryParams: { prompt: 'select_account' },
+          skipBrowserRedirect: inIframe,
+        },
+      });
+
+      if (error) {
+        if (popup) popup.close();
+        setAuthError(`Login Google gagal: ${error.message}`);
+        setAuthLoading(false);
+        return;
+      }
+
+      if (inIframe) {
+        if (data?.url && popup && !popup.closed) {
+          popup.location.href = data.url;
+          popup.focus();
+
+          const checkClosed = setInterval(() => {
+            if (popup?.closed) {
+              clearInterval(checkClosed);
+              setAuthLoading(false);
+            }
+          }, 1000);
+        } else if (data?.url) {
+          // Jika popup diblokir browser, alihkan jendela teratas
+          if (window.top) {
+            window.top.location.href = data.url;
+          } else {
+            window.location.href = data.url;
+          }
+        }
+      }
+    } catch (err) {
+      if (popup) popup.close();
+      setAuthError(err instanceof Error ? err.message : 'Gagal membuka login Google.');
       setAuthLoading(false);
     }
   };
@@ -1749,6 +1841,19 @@ export default function AdminPage() {
                 <ShieldCheck size={17} aria-hidden="true" />
                 {authLoading ? 'Membuka Google…' : 'Masuk dengan Google'}
               </button>
+              {isInIframe && (
+                <p className="mt-2 text-xs text-slate-500 text-center">
+                  Bila popup login diblokir browser,{' '}
+                  <a
+                    href="https://linusku.vercel.app/admin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-700 font-semibold underline inline-flex items-center gap-0.5"
+                  >
+                    buka panel di tab baru <ExternalLink size={11} />
+                  </a>
+                </p>
+              )}
               <div className="admin-divider"><span>atau email</span></div>
               <form className="admin-login-form" onSubmit={signInWithPassword}>
                 <label className="admin-field">
