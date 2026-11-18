@@ -417,6 +417,7 @@ export default function AdminPage() {
       provider: 'google',
       options: {
         redirectTo: new URL(window.location.pathname, window.location.origin).toString(),
+        queryParams: { prompt: 'select_account' },
       },
     });
     if (error) {
@@ -999,7 +1000,9 @@ export default function AdminPage() {
             {isAuthenticated
               ? dataLoading
                 ? 'Memuat panel admin…'
-                : 'Panel admin belum tersedia'
+                : dataError.includes('tidak memiliki akses admin')
+                  ? 'Akun ini bukan admin'
+                  : 'Panel admin belum tersedia'
               : 'Masuk ke panel admin'}
           </h1>
           <p
@@ -1007,7 +1010,17 @@ export default function AdminPage() {
             role={isAuthenticated && dataError ? 'alert' : undefined}
           >
             {isAuthenticated
-              ? dataError || 'Akun ini belum memperoleh akses admin atau layanan admin belum siap.'
+              ? (
+                <>
+                  {dataError || 'Akun ini belum memperoleh akses admin atau layanan admin belum siap.'}
+                  {session?.user.email && (
+                    <>
+                      <br />
+                      Akun yang aktif: <strong>{session.user.email}</strong>. Pilih akun admin yang benar.
+                    </>
+                  )}
+                </>
+              )
               : 'Gunakan akun pengelola yang sudah diizinkan. Secret key tidak pernah dikirim ke browser.'}
           </p>
           {!isAuthenticated && (
@@ -1060,6 +1073,16 @@ export default function AdminPage() {
           {authError && <p className="admin-message admin-message--error" role="alert">{authError}</p>}
           {isAuthenticated && (
             <div className="admin-login-actions">
+              <button
+                type="button"
+                className="admin-button admin-button--primary"
+                onClick={signInWithGoogle}
+                disabled={!isSupabaseConfigured || authLoading}
+                aria-busy={authLoading}
+              >
+                <ShieldCheck size={16} aria-hidden="true" />
+                {authLoading ? 'Membuka Google…' : 'Pilih akun Google lain'}
+              </button>
               <button
                 type="button"
                 className="admin-button admin-button--quiet"
