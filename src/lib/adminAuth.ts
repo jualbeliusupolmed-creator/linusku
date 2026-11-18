@@ -4,6 +4,9 @@ import {
   getSupabaseAdminClient,
   isSupabaseAdminConfigured,
 } from '@/lib/supabaseServer';
+import { getAdminAllowlist, isAdminEmailAllowed } from './adminAllowlist';
+
+export { getAdminAllowlist, isAdminEmailAllowed } from './adminAllowlist';
 
 export type AdminAuthorization =
   | {
@@ -15,20 +18,6 @@ export type AdminAuthorization =
       ok: false;
       response: NextResponse<{ error: string }>;
     };
-
-export function getAdminAllowlist(): string[] {
-  return (process.env.LINUSKU_ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-export function isAdminEmailAllowed(
-  email: string | undefined,
-  allowlist = getAdminAllowlist()
-): boolean {
-  return Boolean(email && allowlist.includes(email.trim().toLowerCase()));
-}
 
 export async function requireAdmin(
   request: NextRequest

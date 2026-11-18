@@ -29,7 +29,7 @@ SUPABASE_SECRET_KEY
 LINUSKU_ADMIN_EMAILS
 ```
 
-Isi `LINUSKU_ADMIN_EMAILS` dengan satu atau lebih email akun Supabase Auth yang boleh mengelola `/admin`, dipisahkan koma. Email admin harus sudah diverifikasi. Jangan menaruh email admin di variabel `NEXT_PUBLIC_*`.
+Isi `LINUSKU_ADMIN_EMAILS` dengan satu atau lebih email akun Supabase Auth yang boleh mengelola `/admin`, dipisahkan koma. Jika kosong, server memakai `kampuskitaapp@gmail.com` sebagai superadmin bawaan. Email admin harus sudah diverifikasi. Jangan menaruh email admin di variabel `NEXT_PUBLIC_*`.
 
 Nilai `SUPABASE_SECRET_KEY` hanya berada di Vercel dan server lokal. API menggunakannya di server untuk laporan komunitas serta operasi admin. Jangan gunakan awalan `NEXT_PUBLIC_`, jangan masukkan nilainya ke Git, dan jangan kirim ke browser. `SUPABASE_SERVICE_ROLE_KEY` tetap didukung untuk proyek lama.
 
