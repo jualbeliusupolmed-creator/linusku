@@ -1672,3 +1672,61 @@
     transition-duration: 0.01ms;
   }
 }
+
+/* ========================================================
+   Admin Modal (e.g. QR Code Generator Modal)
+   ======================================================== */
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-md);
+}
+
+.admin-modal {
+  position: relative;
+  background-color: var(--color-paper-3);
+  border: var(--rule-bar) solid var(--color-ink);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-lg);
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.admin-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  padding-bottom: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.admin-modal-header h3 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 800;
+  color: var(--color-ink);
+}
+
+.admin-modal-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.admin-modal-close-btn:hover {
+  color: var(--color-ink);
+}

@@ -106,6 +106,7 @@ export default function DriverPage() {
     lat: number;
     lng: number;
     speedKmh: number;
+    accuracyMeters?: number;
   } | null>(null);
   const [statusMessage, setStatusMessage] = useState(
     'Siap mengirim koordinat armada ke peta LINUSKU.'
@@ -740,7 +741,8 @@ export default function DriverPage() {
     lng: number,
     speedKmh: number,
     heading: number,
-    sourceType: SourceType
+    sourceType: SourceType,
+    accuracyMeters?: number
   ) => {
     if (isSupabaseConfigured && !assignedBus) {
       setStatusMessage('Akun belum ditugaskan ke armada aktif. Hubungi admin LINUSKU.');
@@ -776,7 +778,7 @@ export default function DriverPage() {
 
     lastPublishRef.current = { lat, lng, at: now };
     if (!isSupabaseConfigured) {
-      setLastCoords({ lat, lng, speedKmh });
+      setLastCoords({ lat, lng, speedKmh, accuracyMeters });
       setStatusMessage(
         'Mode Uji Lokal, koordinat diperbarui (hubungkan Supabase untuk siaran publik).'
       );
@@ -806,7 +808,7 @@ export default function DriverPage() {
       );
       return;
     }
-    setLastCoords({ lat, lng, speedKmh });
+    setLastCoords({ lat, lng, speedKmh, accuracyMeters });
     void pingDriverSession();
     if (!manager.getSnapshot().online) {
       setStatusMessage('Tidak ada koneksi. Koordinat tersimpan dan akan dikirim otomatis.');
@@ -912,14 +914,16 @@ export default function DriverPage() {
     );
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        const { latitude, longitude, speed, heading } = position.coords;
+        const { latitude, longitude, speed, heading, accuracy } = position.coords;
         const speedKmh = speed ? Math.round(speed * 3.6) : 18;
+        const accuracyMeters = accuracy ? Math.round(accuracy) : undefined;
         void publishPosition(
           latitude,
           longitude,
           speedKmh,
           heading ?? 0,
-          'driver'
+          'driver',
+          accuracyMeters
         );
       },
       (err) => {
@@ -939,7 +943,7 @@ export default function DriverPage() {
   }, [stopTracking]);
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
+    <div className="driver-shell min-h-screen px-4 py-8">
       <div className="mx-auto max-w-md space-y-5">
         <Link
           href="/"
@@ -949,7 +953,7 @@ export default function DriverPage() {
           Kembali ke Peta Penumpang
         </Link>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="driver-card">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white">
@@ -980,6 +984,20 @@ export default function DriverPage() {
               </span>
             )}
           </div>
+
+          {isTracking && (
+            <div className="driver-live-beacon">
+              <span className="driver-live-dot" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wide">
+                  GPS Aktif — Menyiarkan Posisi
+                </div>
+                <div className="text-[11px] font-normal opacity-90 truncate">
+                  {assignedBus ? `${assignedBus.name} (${assignedBus.id})` : 'LINUS-01'} · Terlihat langsung di peta penumpang
+                </div>
+              </div>
+            </div>
+          )}
 
           {isSupabaseConfigured && sessionEmail && (
             <>
@@ -1432,14 +1450,14 @@ export default function DriverPage() {
                   type="button"
                   onClick={isTracking ? stopTracking : startTracking}
                   disabled={!assignedBus || authLoading}
-                  className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  className={`flex min-h-14 w-full items-center justify-center gap-2.5 rounded-xl px-5 py-3.5 text-base font-bold text-white transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
                     isTracking
-                      ? 'bg-rose-700 hover:bg-rose-800 focus-visible:outline-rose-700'
-                      : 'bg-emerald-700 hover:bg-emerald-800'
+                      ? 'bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/30'
+                      : 'bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/30'
                   }`}
                 >
-                  {isTracking ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                  {isTracking ? 'Hentikan berbagi lokasi' : 'Mulai berbagi lokasi'}
+                  {isTracking ? <Square className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
+                  {isTracking ? 'Hentikan Berbagi Lokasi' : 'Mulai Berbagi Lokasi'}
                 </button>
                 {preflightError && (
                   <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">
@@ -1501,14 +1519,15 @@ export default function DriverPage() {
               <p className="font-semibold text-slate-800">{statusMessage}</p>
               {lastCoords && (
                 <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                  <MapPin className="h-4 w-4 text-emerald-700" />
+                  <MapPin className="h-4 w-4 text-emerald-700 shrink-0" />
                   {lastCoords.lat.toFixed(5)}, {lastCoords.lng.toFixed(5)} ·{' '}
                   {lastCoords.speedKmh} km/j
+                  {lastCoords.accuracyMeters != null && ` · Akurasi ±${lastCoords.accuracyMeters}m`}
                 </p>
               )}
               {isTracking && (
                 <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                  <Smartphone className="h-4 w-4 text-emerald-700" />
+                  <Smartphone className="h-4 w-4 text-emerald-700 shrink-0" />
                   {wakeLockActive ? 'Layar tetap aktif saat GPS berjalan' : 'GPS aktif'}
                 </p>
               )}

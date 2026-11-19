@@ -29,10 +29,12 @@ import {
   RotateCcw,
   Settings2,
   ShieldCheck,
+  QrCode,
   Upload,
   UserCheck,
   Users,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import type { Session } from '@supabase/supabase-js';
 import {
   DEFAULT_ETA_SETTINGS,
@@ -436,6 +438,8 @@ export default function AdminPage() {
   const [stopEditorOpen, setStopEditorOpen] = useState(false);
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
   const [stopForm, setStopForm] = useState<StopForm>(EMPTY_STOP_FORM);
+  const [qrModalStop, setQrModalStop] = useState<AdminStop | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [serviceDays, setServiceDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [openingTime, setOpeningTime] = useState('07:00');
   const [closingTime, setClosingTime] = useState('17:00');
@@ -1429,6 +1433,33 @@ export default function AdminPage() {
     setEditingStopId(null);
     setStopForm(EMPTY_STOP_FORM);
     setStopEditorOpen(true);
+  };
+
+  const handleShowQr = async (stop: AdminStop) => {
+    setQrModalStop(stop);
+    setQrDataUrl('');
+    try {
+      // Use current origin; no hardcoded fallback — QR codes must point to actual deployment
+      const origin =
+        typeof window !== 'undefined' && window.location.origin
+          ? window.location.origin
+          : '';
+      if (!origin) {
+        throw new Error('Tidak dapat menentukan origin halaman untuk QR code.');
+      }
+      const stopUrl = `${origin}/?stop=${encodeURIComponent(stop.id)}`;
+      const url = await QRCode.toDataURL(stopUrl, {
+        width: 320,
+        margin: 2,
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff',
+        },
+      });
+      setQrDataUrl(url);
+    } catch (err) {
+      console.error('Failed to generate QR code', err);
+    }
   };
 
   const renderBusForm = () => (
@@ -2791,6 +2822,15 @@ export default function AdminPage() {
                           <button
                             type="button"
                             className="admin-button admin-button--quiet"
+                            onClick={() => void handleShowQr(stop)}
+                            title={`QR Code ${stop.name}`}
+                          >
+                            <QrCode size={15} style={{ marginRight: 4, display: 'inline-block', verticalAlign: 'middle' }} />
+                            QR
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-button admin-button--quiet"
                             onClick={() => startEditingStop(stop)}
                           >
                             Ubah
@@ -2822,6 +2862,129 @@ export default function AdminPage() {
               requestAdmin={requestAdmin}
               onImported={handleImported}
             />
+            {qrModalStop && (
+              <div
+                className="admin-modal-backdrop"
+                onClick={() => setQrModalStop(null)}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="qr-modal-title"
+              >
+                <div
+                  className="admin-modal"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ textAlign: 'center' }}
+                >
+                  <div className="admin-modal-header">
+                    <h3 id="qr-modal-title">QR Halte: {qrModalStop.name}</h3>
+                    <button
+                      type="button"
+                      className="admin-modal-close-btn"
+                      onClick={() => setQrModalStop(null)}
+                      aria-label="Tutup"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p
+                    style={{
+                      fontSize: '0.825rem',
+                      color: 'var(--color-muted)',
+                      margin: '8px 0 16px',
+                    }}
+                  >
+                    Scan QR ini untuk langsung membuka pelacak bus di{' '}
+                    <strong>{qrModalStop.name}</strong>. Cocok dicetak dan ditempel di fisik halte.
+                  </p>
+                  {qrDataUrl ? (
+                    <div
+                      style={{
+                        display: 'inline-block',
+                        padding: 12,
+                        background: '#ffffff',
+                        borderRadius: 12,
+                        border: 'var(--rule-hair) solid var(--color-rule)',
+                        boxShadow: 'var(--shadow-card)',
+                      }}
+                    >
+                      <img
+                        src={qrDataUrl}
+                        alt={`QR Code ${qrModalStop.name}`}
+                        width={260}
+                        height={260}
+                        style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ padding: 40, color: 'var(--color-muted)' }}>Menghasilkan QR…</div>
+                  )}
+                  <div
+                    style={{
+                      marginTop: 12,
+                      fontSize: '0.725rem',
+                      wordBreak: 'break-all',
+                      color: 'var(--color-muted)',
+                    }}
+                  >
+                    <code>
+                      {typeof window !== 'undefined'
+                        ? `${window.location.origin}/?stop=${qrModalStop.id}`
+                        : `/?stop=${qrModalStop.id}`}
+                    </code>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      justifyContent: 'center',
+                      marginTop: 16,
+                    }}
+                  >
+                    {qrDataUrl && (
+                      <button
+                        type="button"
+                        className="admin-button admin-button--primary"
+                        onClick={() => {
+                          // Convert data URL to blob for reliable download across browsers
+                          fetch(qrDataUrl)
+                            .then((res) => res.blob())
+                            .then((blob) => {
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `QR-Halte-${qrModalStop.id}.png`;
+                              document.body.appendChild(a);
+                              a.click();
+                              a.remove();
+                              URL.revokeObjectURL(url);
+                            })
+                            .catch((err) => {
+                              console.error('Failed to download QR code', err);
+                            });
+                        }}
+                      >
+                        <Download
+                          size={16}
+                          style={{
+                            marginRight: 6,
+                            display: 'inline-block',
+                            verticalAlign: 'middle',
+                          }}
+                        />
+                        Unduh PNG
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="admin-button"
+                      onClick={() => setQrModalStop(null)}
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
 

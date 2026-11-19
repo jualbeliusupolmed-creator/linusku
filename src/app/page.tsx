@@ -165,6 +165,60 @@ export default function HomePage() {
     getLinusOperatingStatus()
   );
 
+  // PWA beforeinstallprompt capture & state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  useEffect(() => {
+    let isDismissed = false;
+    try {
+      isDismissed = localStorage.getItem('linusku:pwa-dismissed') === '1';
+    } catch {}
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      if (!isDismissed) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    const handleAppInstalled = () => {
+      setShowInstallBanner(false);
+      setDeferredPrompt(null);
+      setToastMessage('🎉 Aplikasi LINUSKU berhasil dipasang!');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    try {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setShowInstallBanner(false);
+      }
+    } catch (err) {
+      console.error('Install prompt error:', err);
+    }
+    setDeferredPrompt(null);
+  };
+
+  const dismissInstallBanner = () => {
+    setShowInstallBanner(false);
+    try {
+      localStorage.setItem('linusku:pwa-dismissed', '1');
+    } catch {}
+  };
+
   // Auto-dismiss floating toast notification
   useEffect(() => {
     if (!toastMessage) return;
@@ -1034,6 +1088,47 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+            {pushNotificationsEnabled && notificationPermission !== 'unsupported' && !notificationsEnabled && (
+              <div className="watch-bus-cta-card">
+                <div className="watch-bus-cta-info">
+                  <div className="watch-bus-cta-text">
+                    <h4>
+                      <Bell size={15} />
+                      Pantau Bus di Halte Ini
+                    </h4>
+                    <p>Dapat notifikasi otomatis saat bus mendekati {selectedStop.name}.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="watch-bus-cta-btn"
+                  onClick={() => void toggleNotifications()}
+                >
+                  Aktifkan
+                </button>
+              </div>
+            )}
+            {pushNotificationsEnabled && notificationsEnabled && (
+              <div className="watch-bus-cta-card" style={{ background: 'var(--utility-emerald-50)', borderColor: 'var(--utility-emerald-600)' }}>
+                <div className="watch-bus-cta-info">
+                  <div className="watch-bus-cta-text">
+                    <h4>
+                      <BellRing size={15} style={{ color: 'var(--utility-emerald-600)' }} />
+                      Pengingat Halte Aktif
+                    </h4>
+                    <p>Notifikasi akan muncul saat bus ~2 menit dari {selectedStop.name}.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="watch-bus-cta-btn"
+                  style={{ backgroundColor: 'transparent', color: 'var(--utility-emerald-800)', border: '1px solid var(--utility-emerald-600)' }}
+                  onClick={() => void toggleNotifications()}
+                >
+                  Matikan
+                </button>
+              </div>
+            )}
             {(notificationStatus || shareStatus) && (
               <p className="mt-2 text-xs text-slate-600 font-medium" role="status" aria-live="polite">
                 {[notificationStatus, shareStatus].filter(Boolean).join(' · ')}
@@ -1523,6 +1618,39 @@ export default function HomePage() {
           <a href="#halte" className="active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><MapPin size={18} />Halte</a>
         </div>
       </nav>
+
+      {showInstallBanner && deferredPrompt && (
+        <aside className="pwa-install-banner" aria-label="Pasang Aplikasi LINUSKU">
+          <div className="pwa-install-content">
+            <img
+              src="/icon.svg"
+              alt="Logo LINUSKU"
+              className="pwa-install-app-icon"
+            />
+            <div className="pwa-install-text">
+              <h4>Pasang Aplikasi LINUSKU</h4>
+              <p>Akses cepat posisi bus USU langsung dari layar HP.</p>
+            </div>
+          </div>
+          <div className="pwa-install-actions">
+            <button
+              type="button"
+              className="pwa-install-btn"
+              onClick={() => void handleInstallApp()}
+            >
+              Pasang
+            </button>
+            <button
+              type="button"
+              className="pwa-install-dismiss"
+              onClick={dismissInstallBanner}
+              aria-label="Tutup saran pemasangan"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </aside>
+      )}
 
       {toastMessage && (
         <div className="linus-toast" role="status" aria-live="polite">

@@ -1462,16 +1462,17 @@ body {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
   left: 50%;
   transform: translateX(-50%);
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  border: var(--rule-hair) solid var(--color-rule);
   padding: 8px 16px;
   border-radius: 9999px;
   font-size: 0.825rem;
-  font-weight: 500;
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 8px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-card);
   z-index: 9999;
   pointer-events: none;
   animation: toastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -1497,8 +1498,8 @@ body {
 }
 
 .quick-guide-banner {
-  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
-  border: 1px solid #a7f3d0;
+  background: var(--utility-emerald-50);
+  border: 1px solid var(--utility-emerald-200);
   border-radius: 12px;
   padding: 10px 14px;
   margin-bottom: 10px;
@@ -1527,13 +1528,13 @@ body {
 .quick-guide-text h4 {
   font-size: 0.8125rem;
   font-weight: 700;
-  color: #065f46;
+  color: var(--utility-emerald-800);
   margin: 0;
 }
 
 .quick-guide-text p {
   font-size: 0.725rem;
-  color: #047857;
+  color: var(--utility-emerald-700);
   margin: 2px 0 0 0;
   line-height: 1.35;
 }
@@ -1541,7 +1542,7 @@ body {
 .quick-guide-dismiss {
   background: none;
   border: none;
-  color: #059669;
+  color: var(--utility-emerald-600);
   cursor: pointer;
   padding: 4px;
   border-radius: 6px;
@@ -1552,14 +1553,14 @@ body {
 }
 
 .quick-guide-dismiss:hover {
-  background-color: #d1fae5;
-  color: #047857;
+  background-color: var(--utility-emerald-50);
+  color: var(--utility-emerald-800);
 }
 
 .offline-alert-strip {
-  background-color: #fffbeb;
-  border-bottom: 1px solid #fde68a;
-  color: #92400e;
+  background-color: var(--utility-amber-50);
+  border-bottom: 1px solid var(--utility-amber-200);
+  color: var(--utility-amber-900);
   padding: 6px 14px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1583,9 +1584,9 @@ body {
   font-size: 0.725rem;
   font-weight: 600;
   border-radius: 9999px;
-  border: 1px solid #e2e8f0;
-  background-color: #ffffff;
-  color: #64748b;
+  border: 1px solid var(--color-rule);
+  background-color: var(--color-paper-3);
+  color: var(--color-muted);
   cursor: pointer;
   transition: all 0.15s ease;
   display: inline-flex;
@@ -1594,32 +1595,32 @@ body {
 }
 
 .stop-filter-chip.is-active {
-  background-color: #059669;
-  color: #ffffff;
-  border-color: #059669;
+  background-color: var(--color-admin-accent);
+  color: var(--color-paper-3);
+  border-color: var(--color-admin-accent);
 }
 
 /* ========================================================
    Enhanced Tooltip, Closed Overlay & Suggestion Banner
    ======================================================== */
 .linus-stop-tooltip {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid #10b981 !important;
+  background-color: var(--color-paper-3) !important;
+  color: var(--color-ink) !important;
+  border: 1px solid var(--color-admin-accent) !important;
   border-radius: 6px !important;
   padding: 2px 7px !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: var(--shadow-card) !important;
   font-family: inherit !important;
 }
 
 .linus-stop-tooltip::before {
-  border-top-color: #10b981 !important;
+  border-top-color: var(--color-admin-accent) !important;
 }
 
 .nearest-stop-banner {
-  background-color: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
+  background-color: var(--color-paper-2);
+  border: 1px solid var(--color-accent);
+  color: var(--color-ink);
   padding: 8px 14px;
   display: flex;
   align-items: center;
@@ -1640,25 +1641,26 @@ body {
 }
 
 .nearest-stop-accept-btn {
-  background-color: #2563eb;
-  color: #ffffff;
+  background-color: var(--color-accent);
+  color: var(--color-accent-ink);
   border: none;
   border-radius: 6px;
   padding: 4px 10px;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .nearest-stop-accept-btn:hover {
-  background-color: #1d4ed8;
+  background-color: var(--color-accent-2);
+  color: var(--color-ink);
 }
 
 .nearest-stop-dismiss-btn {
   background: none;
   border: none;
-  color: #60a5fa;
+  color: var(--color-muted);
   cursor: pointer;
   padding: 4px;
   display: flex;
@@ -1667,13 +1669,13 @@ body {
 }
 
 .nearest-stop-dismiss-btn:hover {
-  color: #1e40af;
+  color: var(--color-ink);
 }
 
 .map-closed-overlay {
   position: absolute;
   inset: 0;
-  background-color: rgba(15, 23, 42, 0.55);
+  background-color: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(2px);
   z-index: 10;
   display: flex;
@@ -1685,12 +1687,13 @@ body {
 
 .map-closed-card {
   position: relative;
-  background-color: #ffffff;
+  background-color: var(--color-paper-3);
+  border: var(--rule-bar) solid var(--color-ink);
   border-radius: 16px;
   padding: 20px 20px 16px 20px;
   max-width: 340px;
   text-align: center;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1702,7 +1705,7 @@ body {
   right: 10px;
   background: none;
   border: none;
-  color: #94a3b8;
+  color: var(--color-muted);
   cursor: pointer;
   padding: 6px;
   border-radius: 9999px;
@@ -1713,45 +1716,45 @@ body {
 }
 
 .map-closed-close-btn:hover {
-  background-color: #f1f5f9;
-  color: #0f172a;
+  background-color: var(--color-paper-2);
+  color: var(--color-ink);
 }
 
 .map-closed-btn {
   margin-top: 12px;
-  background-color: #059669;
-  color: #ffffff;
+  background-color: var(--color-admin-accent);
+  color: var(--color-paper-3);
   font-weight: 700;
   font-size: 0.775rem;
   padding: 6px 16px;
   border-radius: 8px;
   border: none;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 
 .map-closed-btn:hover {
-  background-color: #047857;
+  opacity: 0.9;
 }
 
 .map-closed-title {
   font-size: 0.95rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--color-ink);
   margin-top: 8px;
   margin-bottom: 4px;
 }
 
 .map-closed-sub {
   font-size: 0.775rem;
-  color: #475569;
+  color: var(--color-muted);
   line-height: 1.45;
   margin: 0;
 }
 
 .passenger-faq-card {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background-color: var(--color-paper-2);
+  border: 1px solid var(--color-rule);
   border-radius: 12px;
   padding: 12px 14px;
   margin-top: 10px;
@@ -1760,7 +1763,7 @@ body {
 .passenger-faq-title {
   font-size: 0.8125rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--color-ink);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1776,8 +1779,8 @@ body {
 }
 
 .passenger-faq-item {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--color-paper-3);
+  border: 1px solid var(--color-rule);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.75rem;
@@ -1785,15 +1788,273 @@ body {
 
 .passenger-faq-item strong {
   display: block;
-  color: #0f172a;
+  color: var(--color-ink);
   margin-bottom: 2px;
 }
 
 .passenger-faq-item p {
-  color: #64748b;
+  color: var(--color-muted);
   margin: 0;
   font-size: 0.7rem;
   line-height: 1.35;
+}
+
+/* ========================================================
+   Feature 2 & 6: "Pantau Bus Ini" Card & PWA Install Prompt
+   ======================================================== */
+.watch-bus-cta-card {
+  margin: 8px 12px;
+  padding: 10px 14px;
+  background: var(--utility-emerald-50);
+  border: 1px solid var(--utility-emerald-200);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.watch-bus-cta-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.watch-bus-cta-text h4 {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--utility-emerald-800);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.watch-bus-cta-text p {
+  font-size: 0.725rem;
+  color: var(--utility-emerald-700);
+  margin: 2px 0 0 0;
+  line-height: 1.35;
+}
+
+.watch-bus-cta-btn {
+  background-color: var(--utility-emerald-600);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s ease;
+}
+
+.watch-bus-cta-btn:hover {
+  opacity: 0.9;
+}
+
+.watch-bus-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--utility-emerald-200);
+  color: var(--utility-emerald-800);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--utility-emerald-600);
+}
+
+.pwa-install-banner {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 68px);
+  left: 16px;
+  right: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  z-index: var(--z-modal);
+  background: var(--color-paper-3);
+  border: var(--rule-bar) solid var(--color-ink);
+  box-shadow: var(--shadow-card);
+  padding: 12px 14px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (min-width: 768px) {
+  .pwa-install-banner {
+    bottom: 24px;
+    right: 24px;
+    margin: 0;
+    left: auto;
+  }
+}
+
+.pwa-install-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pwa-install-app-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.pwa-install-text h4 {
+  font-size: 0.825rem;
+  font-weight: 800;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.pwa-install-text p {
+  font-size: 0.725rem;
+  color: var(--color-muted);
+  margin: 2px 0 0 0;
+  line-height: 1.35;
+}
+
+.pwa-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pwa-install-btn {
+  background-color: var(--color-accent);
+  color: var(--color-accent-ink);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.775rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pwa-install-btn:hover {
+  background-color: var(--color-accent-2);
+  color: var(--color-ink);
+}
+
+.pwa-install-dismiss {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pwa-install-dismiss:hover {
+  background-color: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+/* ========================================================
+   Feature 3: Driver Portal UI / UX & Dark Mode
+   ======================================================== */
+.driver-shell {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.driver-card {
+  background-color: var(--color-paper-3);
+  border: var(--rule-bar) solid var(--color-ink);
+  box-shadow: var(--shadow-card);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+@media (min-width: 640px) {
+  .driver-card {
+    padding: 24px;
+  }
+}
+
+.driver-shell input,
+.driver-shell select,
+.driver-shell textarea {
+  background-color: var(--color-paper-3);
+  color: var(--color-ink);
+  border-color: var(--color-rule);
+}
+
+.driver-shell input:focus,
+.driver-shell select:focus,
+.driver-shell textarea:focus {
+  border-color: var(--color-admin-accent);
+  outline-color: var(--color-admin-accent);
+}
+
+.driver-card-panel {
+  background-color: var(--color-paper-2);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.driver-live-beacon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--utility-emerald-50);
+  border: 1px solid var(--utility-emerald-200);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--utility-emerald-800);
+  margin-top: 14px;
+  animation: pulseBeacon 2.5s infinite ease-in-out;
+}
+
+@keyframes pulseBeacon {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.88; transform: scale(0.995); }
+}
+
+.driver-live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--utility-emerald-600);
+  box-shadow: 0 0 0 4px var(--utility-emerald-200);
+  flex-shrink: 0;
+}
+
+/* ========================================================
+   Dark Mode Leaflet Tile Adjustments
+   ======================================================== */
+:root[data-theme='dark'] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.88) contrast(0.92);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.88) contrast(0.92);
+  }
 }
 
 
