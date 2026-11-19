@@ -64,8 +64,12 @@ Pendaftaran melalui `/driver` membuat akun pengguna biasa. Pengguna dapat mengaj
 
 1. Buka `/api/health`; respons harus memuat `ok: true` dan jumlah bus terdaftar.
 2. Masuk pada `/driver` sebagai akun yang telah ditugaskan, kemudian kirim GPS perangkat. Akun yang belum memiliki penugasan tidak dapat memulai pelacakan.
-3. Buka halaman utama pada perangkat lain. Status harus berubah menjadi `Live Kampus` dan sumber posisi harus bertuliskan `GPS driver`.
+3. Buka halaman utama pada perangkat lain saat jam operasional. Status segar sebaiknya menampilkan sumber posisi `GPS driver`.
 4. Kirim laporan komunitas. Laporan boleh muncul sebagai `Laporan mahasiswa` hanya ketika GPS driver untuk bus tersebut tidak aktif.
 5. Masuk ke `/admin` dan pastikan health check, posisi, armada, halte, akun, permintaan driver, laporan, pengaturan, audit, replay, dan riwayat GPS terbaca.
 6. Uji mode offline pada tracker: status harus menunjukkan offline/queued, sampel harus tetap antre, dan pengiriman harus pulih otomatis ketika jaringan kembali.
 7. Uji notifikasi penumpang: aktifkan izin browser dan opt-in, pilih halte favorit, lalu pastikan notifikasi hanya dikirim saat ETA melewati ambang.
+
+## Monitoring uptime
+
+Pasang UptimeRobot atau monitor uptime lain ke `https://<domain-linusku>/api/health`. Atur pemeriksaan dari interval yang wajar dan pastikan respons memuat `ok: true`. Cukup satu monitor untuk menjaga ketersediaan; monitor gratis yang mati atau terhenti dapat membuat pemantauan tidak berjalan dan berisiko membiarkan proyek Supabase paket gratis masuk mode *auto-pause*.

@@ -1,5 +1,7 @@
 # LINUSKU — Pelacak Posisi Bus Lintas USU
 
+[![CI](https://github.com/jualbeliusupolmed-creator/linusku/actions/workflows/ci.yml/badge.svg)](https://github.com/jualbeliusupolmed-creator/linusku/actions/workflows/ci.yml)
+
 Aplikasi web & PWA ringan untuk memantau posisi dan estimasi waktu tiba (ETA) bus **Lintas USU (Linus)** antar fakultas dan halte di Kampus USU Padang Bulan.
 
 ## Cara kerja
@@ -35,8 +37,14 @@ Panduan lengkap pembuatan database, penugasan akun driver, dan pemeriksaan pasca
 ## Menjalankan & Menguji Proyek di Lokal
 
 ```bash
-cd /Users/ayhoo/Projects/LINUSKU
+cd linusku
 npm install
 npm run check   # Menjalankan tsc --noEmit, vitest, dan next build
 npm run dev     # Menjalankan server lokal di http://localhost:3000
 ```
+
+Variabel publik opsional `NEXT_PUBLIC_CONTACT_URL` mengatur tautan "Lapor masalah / Kontak". Kosongkan nilainya agar tautan disembunyikan.
+
+## Monitoring
+
+Pasang monitor uptime seperti UptimeRobot untuk memanggil `https://<domain-linusku>/api/health` secara berkala. Gunakan interval yang wajar dan pantau respons `ok: true`. Hindari mengandalkan satu cron gratis saja: proyek Supabase pada paket gratis dapat masuk *auto-pause* saat tidak ada aktivitas yang cukup, termasuk jika monitor atau cron berhenti berjalan.

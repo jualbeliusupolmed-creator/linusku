@@ -1,7 +1,7 @@
 # Arsitektur MVP & Strategi Pelacakan LINUSKU
 
 ## 1. Ringkasan Sistem
-**LINUSKU** adalah aplikasi web/PWA ringan untuk memantau posisi dan estimasi waktu tiba (ETA) bus **Lintas USU (Linus)** antar fakultas dan halte di Kampus USU Padang Bulan secara *real-time*.
+**LINUSKU** adalah aplikasi web/PWA ringan untuk memantau posisi dan estimasi waktu tiba (ETA) bus **Lintas USU (Linus)** antar fakultas dan halte di Kampus USU Padang Bulan pada jam operasional Senin-Jumat 07.00-17.00 WIB.
 
 - **Frontend & PWA**: Next.js App Router + Tailwind CSS + Leaflet.
 - **Distribusi posisi**: polling `/api/positions` setiap 4 detik dengan cache tiga detik dan jeda otomatis saat tab tidak aktif.
@@ -48,4 +48,4 @@
 
 ### Rekomendasi Strategi Hybrid untuk USU
 1. **Fase 1 (Minggu 1–2 — Validasi Cepat)**: Mulai dengan **Crowdsourcing Terbatas** oleh relawan/mahasiswa yang sering naik Linus + fitur *tap* status kepadatan (`Lega / Sedang / Penuh`) di halte.
-2. **Fase 2 (Bulan 1+ — Skala Penuh)**: Setelah trafik harian terbukti di mahasiswa USU (bisa ditarik/diintegrasikan dengan ekosistem **StudentPlace**), ajukan kerja sama ke Biro/Pengelola Linus USU untuk menaruh 1 HP Android bekas atau GPS *tracker* murah yang terpasang di dashboard setiap bus aktif.
+2. **Fase 2 (Bulan 1+ — Skala Penuh)**: Setelah trafik harian terbukti di mahasiswa USU, ajukan kerja sama ke Biro/Pengelola Linus USU untuk menaruh 1 HP Android bekas atau GPS *tracker* murah yang terpasang di dashboard setiap bus aktif.
