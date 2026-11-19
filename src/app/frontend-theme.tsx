@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
+import { Moon, Sun } from 'lucide-react';
 
 type ThemePreference = 'system' | 'light' | 'dark';
 
@@ -47,6 +48,13 @@ export default function FrontendThemeShell({
   const [announcement, setAnnouncement] = useState('');
   const [mainTarget, setMainTarget] = useState('main-content');
   const isDriverRoute = pathname === '/driver';
+  const resolvedTheme =
+    theme === 'system'
+      ? typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light'
+      : theme;
 
   useEffect(() => {
     let storedTheme: string | null = null;
@@ -121,18 +129,26 @@ export default function FrontendThemeShell({
         {children}
       </div>
       <div className="theme-control">
-        <label htmlFor="linusku-theme-select">Tema</label>
-        <select
-          id="linusku-theme-select"
-          value={theme}
-          onChange={(event) =>
-            handleThemeChange(event.target.value as ThemePreference)
-          }
+        <button
+          type="button"
+          className={resolvedTheme === 'light' ? 'is-active' : ''}
+          aria-label="Aktifkan mode terang"
+          aria-pressed={resolvedTheme === 'light'}
+          onClick={() => handleThemeChange('light')}
         >
-          <option value="system">Sistem</option>
-          <option value="light">Terang</option>
-          <option value="dark">Gelap</option>
-        </select>
+          <Sun size={16} aria-hidden="true" />
+          <span>Terang</span>
+        </button>
+        <button
+          type="button"
+          className={resolvedTheme === 'dark' ? 'is-active' : ''}
+          aria-label="Aktifkan mode gelap"
+          aria-pressed={resolvedTheme === 'dark'}
+          onClick={() => handleThemeChange('dark')}
+        >
+          <Moon size={16} aria-hidden="true" />
+          <span>Gelap</span>
+        </button>
       </div>
       <span
         className="visually-hidden"

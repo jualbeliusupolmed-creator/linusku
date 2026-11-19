@@ -13,10 +13,11 @@
   --theme-rule-light: oklch(80% 0.011 250); --theme-ink-rule-light: oklch(34% 0.014 262);
   --theme-accent-light: oklch(51% 0.22 264); --theme-accent-2-light: oklch(81% 0.16 82); --theme-accent-ink-light: oklch(99.5% 0.003 250); --theme-focus-light: oklch(51% 0.22 264);
   --theme-admin-accent-light: oklch(47% 0.18 150); --theme-admin-accent-soft-light: oklch(94% 0.035 150); --theme-admin-focus-light: oklch(47% 0.18 150);
-  --theme-paper-dark: #0a0e17; --theme-paper-2-dark: #111827; --theme-paper-3-dark: #162032;
-  --theme-ink-dark: #f1f5f9; --theme-ink-2-dark: #94a3b8; --theme-muted-dark: #64748b;
-  --theme-rule-dark: #1e293b; --theme-ink-rule-dark: #293548;
-  --theme-accent-dark: #10b981; --theme-accent-2-dark: #d97706; --theme-accent-ink-dark: #ffffff; --theme-focus-dark: #10b981;
+  /* True black dark mode */
+  --theme-paper-dark: #000000; --theme-paper-2-dark: #0a0a0a; --theme-paper-3-dark: #121212;
+  --theme-ink-dark: #ffffff; --theme-ink-2-dark: #b3b3b3; --theme-muted-dark: #808080;
+  --theme-rule-dark: #2a2a2a; --theme-ink-rule-dark: #404040;
+  --theme-accent-dark: #10b981; --theme-accent-2-dark: #d97706; --theme-accent-ink-dark: #000000; --theme-focus-dark: #10b981;
   --theme-admin-accent-dark: #10b981; --theme-admin-accent-soft-dark: #064e3b; --theme-admin-focus-dark: #34d399;
   --color-paper: var(--theme-paper-light); --color-paper-2: var(--theme-paper-2-light); --color-paper-3: var(--theme-paper-3-light);
   --color-ink: var(--theme-ink-light); --color-ink-2: var(--theme-ink-2-light); --color-muted: var(--theme-muted-light);
@@ -47,7 +48,7 @@
     --color-accent: var(--theme-accent-dark); --color-accent-2: var(--theme-accent-2-dark); --color-accent-ink: var(--theme-accent-ink-dark); --color-focus: var(--theme-focus-dark);
     --color-admin-accent: var(--theme-admin-accent-dark); --color-admin-accent-soft: var(--theme-admin-accent-soft-dark); --color-admin-focus: var(--theme-admin-focus-dark);
     --shadow-card: 0 16px 32px -16px rgba(0, 0, 0, 0.5);
-    --utility-slate-50: #0d131f; --utility-slate-100: #141c2b; --utility-slate-200: #1e293b; --utility-slate-300: #334155; --utility-slate-500: #64748b; --utility-slate-600: #94a3b8; --utility-slate-700: #cbd5e1; --utility-slate-800: #e2e8f0; --utility-slate-900: #f8fafc; --utility-white: #162032;
+    --utility-slate-50: #050505; --utility-slate-100: #0a0a0a; --utility-slate-200: #1a1a1a; --utility-slate-300: #2a2a2a; --utility-slate-500: #737373; --utility-slate-600: #a3a3a3; --utility-slate-700: #d4d4d4; --utility-slate-800: #e5e5e5; --utility-slate-900: #ffffff; --utility-white: #121212;
     --utility-emerald-50: #064e3b33; --utility-emerald-200: #05966955; --utility-emerald-600: #10b981; --utility-emerald-700: #34d399; --utility-emerald-800: #6ee7b7;
     --utility-amber-50: #78350f33; --utility-amber-200: #d9770655; --utility-amber-900: #fcd34d;
     --utility-rose-50: #88133733; --utility-rose-200: #e11d4855; --utility-rose-700: #fda4af; --utility-rose-800: #fecdd3;
@@ -63,7 +64,7 @@
   --color-accent: var(--theme-accent-dark); --color-accent-2: var(--theme-accent-2-dark); --color-accent-ink: var(--theme-accent-ink-dark); --color-focus: var(--theme-focus-dark);
   --color-admin-accent: var(--theme-admin-accent-dark); --color-admin-accent-soft: var(--theme-admin-accent-soft-dark); --color-admin-focus: var(--theme-admin-focus-dark);
   --shadow-card: 0 16px 32px -16px rgba(0, 0, 0, 0.5);
-  --utility-slate-50: #0d131f; --utility-slate-100: #141c2b; --utility-slate-200: #1e293b; --utility-slate-300: #334155; --utility-slate-500: #64748b; --utility-slate-600: #94a3b8; --utility-slate-700: #cbd5e1; --utility-slate-800: #e2e8f0; --utility-slate-900: #f8fafc; --utility-white: #162032;
+  --utility-slate-50: #050505; --utility-slate-100: #0a0a0a; --utility-slate-200: #1a1a1a; --utility-slate-300: #2a2a2a; --utility-slate-500: #737373; --utility-slate-600: #a3a3a3; --utility-slate-700: #d4d4d4; --utility-slate-800: #e5e5e5; --utility-slate-900: #ffffff; --utility-white: #121212;
   --utility-emerald-50: #064e3b33; --utility-emerald-200: #05966955; --utility-emerald-600: #10b981; --utility-emerald-700: #34d399; --utility-emerald-800: #6ee7b7;
   --utility-amber-50: #78350f33; --utility-amber-200: #d9770655; --utility-amber-900: #fcd34d;
   --utility-rose-50: #88133733; --utility-rose-200: #e11d4855; --utility-rose-700: #fda4af; --utility-rose-800: #fecdd3;

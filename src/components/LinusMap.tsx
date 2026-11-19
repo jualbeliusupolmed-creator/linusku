@@ -257,23 +257,6 @@ export default function LinusMap({
 
   return (
     <div className="relative h-full w-full">
-      <div className="map-use-guide" role="status">
-        <div className="flex items-center justify-between gap-1.5 flex-wrap">
-          <strong>Pilih halte untuk melihat ETA</strong>
-          {(!isOperating || feedMode === 'simulation') ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-bold text-amber-900 shrink-0">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-              Simulasi
-            </span>
-          ) : feedMode === 'live' ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold text-emerald-900 shrink-0">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              Live GPS
-            </span>
-          ) : null}
-        </div>
-        <span>Klik marker atau nama halte di samping</span>
-      </div>
       {/* Toggle Mode Kota / Satelit */}
       <div className="map-mode-toggle">
         <button

@@ -4,24 +4,28 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   Bell,
   BellRing,
   Bus,
   Check,
+  ChevronRight,
   Clock,
   Compass,
   Copy,
   ExternalLink,
+  HelpCircle,
   Info,
   MapPin,
+  Moon,
   Navigation,
   Radio,
   RefreshCw,
   Search,
   Share2,
   ShoppingBag,
-  Sparkles,
   Star,
+  Sun,
   Users,
   WifiOff,
   X,
@@ -865,18 +869,20 @@ export default function HomePage() {
               <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
               <span>{lastSyncedAt ? `${lastSyncedAt}` : 'Segarkan'}</span>
             </button>
-            <span
+            <button
+              type="button"
               className={`live-chip focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${feedMode === 'live' ? 'is-live' : ''}`}
               role="status"
-              title={
-                feedMode === 'live'
-                  ? 'Posisi dikirim langsung oleh GPS supir'
-                  : feedMode === 'community'
-                    ? 'Posisi berbasis laporan sukarela mahasiswa'
-                    : feedMode === 'simulation'
-                      ? 'Pergerakan contoh, bukan bus nyata'
-                      : 'Koneksi posisi sedang tidak tersedia'
-              }
+              aria-label="Sumber data posisi bus"
+              onClick={() => {
+                const messages: Record<string, string> = {
+                  live: '📡 Bus Live — Posisi dikirim langsung oleh GPS supir tiap 3–5 detik',
+                  community: '👥 Laporan Mhs — Posisi berbasis laporan sukarela mahasiswa (fallback jika GPS supir tidak ada)',
+                  simulation: '🎮 Simulasi — Pergerakan contoh untuk demo, bukan bus nyata',
+                  offline: '📴 Offline — Koneksi posisi sedang tidak tersedia',
+                };
+                setToastMessage(messages[feedMode] ?? messages.offline);
+              }}
             >
               <Radio size={14} />
               <span>
@@ -890,7 +896,7 @@ export default function HomePage() {
                         ? 'Simulasi'
                         : 'Offline'}
               </span>
-            </span>
+            </button>
           </div>
         </div>
       </header>
@@ -899,6 +905,15 @@ export default function HomePage() {
         <div className="offline-alert-strip" role="alert">
           <WifiOff size={14} aria-hidden="true" />
           <span>Koneksi offline. Menampilkan jadwal & rute statis kampus.</span>
+          <button
+            type="button"
+            className="offline-dismiss-btn"
+            onClick={() => setIsOnline(true)}
+            aria-label="Sembunyikan peringatan offline"
+            title="Sembunyikan"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -961,6 +976,19 @@ export default function HomePage() {
             </small>
           </span>
         </div>
+        <a
+          className="marketplace-button"
+          href="https://www.kampuskita.my.id/jual-beli"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Buka Marketplace USU Polmed dan Open PO"
+        >
+          <span>
+            <strong>Marketplace USU Polmed</strong>
+            <small>Jual beli &amp; Open PO mahasiswa</small>
+          </span>
+          <ExternalLink size={16} aria-hidden="true" />
+        </a>
       </div>
 
       <main className="app-main">
@@ -1117,6 +1145,23 @@ export default function HomePage() {
                 </button>
               </div>
             )}
+            {/* Confidence Legend */}
+            <div className="confidence-legend" role="group" aria-label="Tingkat keyakinan estimasi ETA">
+              <span className="confidence-legend-label">Keyakinan:</span>
+              <span className="confidence-legend-item" title="GPS baru (<20 detik) — estimasi sangat akurat">
+                <span className="confidence-dot" style={{ background: 'var(--color-success)' }} aria-hidden="true" />
+                <span>Baru</span>
+              </span>
+              <span className="confidence-legend-item" title="GPS agak lama (20–45 detik) — estimasi diperkirakan">
+                <span className="confidence-dot" style={{ background: 'var(--color-accent-2)' }} aria-hidden="true" />
+                <span>Diperkirakan</span>
+              </span>
+              <span className="confidence-legend-item" title="GPS lama (>45 detik) — estimasi kasar">
+                <span className="confidence-dot" style={{ background: 'var(--color-muted)' }} aria-hidden="true" />
+                <span>Lama</span>
+              </span>
+            </div>
+
             {pushNotificationsEnabled && notificationsEnabled && (
               <div className="watch-bus-cta-card" style={{ background: 'var(--utility-emerald-50)', borderColor: 'var(--utility-emerald-600)' }}>
                 <div className="watch-bus-cta-info">
@@ -1354,27 +1399,33 @@ export default function HomePage() {
                 Pilih kepadatan bus saat terlihat. Laporan tidak menggantikan posisi GPS supir.
               </p>
 
-              <div className="density-chips">
+              <div className="density-chips" role="group" aria-label="Pilih tingkat kepadatan bus">
                 <button
                   type="button"
-                  className={`density-chip-btn ${crowdOccupancy === 'low' ? 'is-active text-emerald-800 border-emerald-500' : ''}`}
+                  className={`density-chip-btn ${crowdOccupancy === 'low' ? 'is-active' : ''}`}
                   onClick={() => setCrowdOccupancy('low')}
+                  aria-pressed={crowdOccupancy === 'low'}
+                  aria-label="Kepadatan: Lega — penumpang sedikit, banyak kursi kosong"
                 >
-                  🟢 Lega
+                  <span aria-hidden="true">🟢</span> Lega
                 </button>
                 <button
                   type="button"
-                  className={`density-chip-btn ${crowdOccupancy === 'medium' ? 'is-active text-amber-800 border-amber-500' : ''}`}
+                  className={`density-chip-btn ${crowdOccupancy === 'medium' ? 'is-active' : ''}`}
                   onClick={() => setCrowdOccupancy('medium')}
+                  aria-pressed={crowdOccupancy === 'medium'}
+                  aria-label="Kepadatan: Sedang — penumpang lumayan, beberapa kursi kosong"
                 >
-                  🟡 Sedang
+                  <span aria-hidden="true">🟡</span> Sedang
                 </button>
                 <button
                   type="button"
-                  className={`density-chip-btn ${crowdOccupancy === 'full' ? 'is-active text-rose-800 border-rose-500' : ''}`}
+                  className={`density-chip-btn ${crowdOccupancy === 'full' ? 'is-active' : ''}`}
                   onClick={() => setCrowdOccupancy('full')}
+                  aria-pressed={crowdOccupancy === 'full'}
+                  aria-label="Kepadatan: Penuh — penumpang penuh, berdiri"
                 >
-                  🔴 Penuh
+                  <span aria-hidden="true">🔴</span> Penuh
                 </button>
               </div>
 
