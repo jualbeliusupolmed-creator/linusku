@@ -56,6 +56,10 @@ const CITY_TILE_URL =
     ? `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`
     : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
 
+const CITY_DARK_TILE_URL = CARTO_API_KEY
+  ? `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`
+  : 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png';
+
 const FALLBACK_OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>';
@@ -186,6 +190,34 @@ export default function LinusMap({
 }: LinusMapProps) {
   const [mapMode, setMapMode] = useState<MapMode>('city');
   const [useFallbackOsm, setUseFallbackOsm] = useState(false);
+  const [isDarkTheme, setIsDarkTheme] = useState(false);
+
+  useEffect(() => {
+    const checkDark = () => {
+      const theme = document.documentElement.dataset.theme;
+      const isDark =
+        theme === 'dark' ||
+        (theme !== 'light' &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches);
+      setIsDarkTheme(isDark);
+    };
+
+    checkDark();
+
+    const observer = new MutationObserver(checkDark);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    mql.addEventListener('change', checkDark);
+
+    return () => {
+      observer.disconnect();
+      mql.removeEventListener('change', checkDark);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -216,7 +248,9 @@ export default function LinusMap({
       ? FALLBACK_OSM_URL
       : mapSettings.tileProvider === 'pmtiles_r2'
         ? process.env.NEXT_PUBLIC_MAP_TILE_URL?.trim() || FALLBACK_OSM_URL
-        : CITY_TILE_URL;
+        : isDarkTheme
+          ? CITY_DARK_TILE_URL
+          : CITY_TILE_URL;
   const cityTileUrl = useFallbackOsm ? FALLBACK_OSM_URL : configuredTileUrl;
   const cityTileAttribution =
     cityTileUrl === FALLBACK_OSM_URL ? OSM_ATTRIBUTION : CARTO_ATTRIBUTION;

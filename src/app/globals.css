@@ -2045,15 +2045,363 @@ body {
 }
 
 /* ========================================================
-   Dark Mode Leaflet Tile Adjustments
+   Dark Mode Polish & Refinements
    ======================================================== */
-:root[data-theme='dark'] .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(0.88) contrast(0.92);
+:root[data-theme='dark'] .app-shell {
+  background: #0a0e17;
+}
+
+:root[data-theme='dark'] .topbar {
+  background: #0d131f;
+  border-bottom: 1px solid #1e293b;
+}
+
+:root[data-theme='dark'] .map-frame,
+:root[data-theme='dark'] .arrival-board,
+:root[data-theme='dark'] .stops-panel,
+:root[data-theme='dark'] .utility-panel,
+:root[data-theme='dark'] .campus-ecosystem-card,
+:root[data-theme='dark'] .studentplace-banner,
+:root[data-theme='dark'] .operating-banner,
+:root[data-theme='dark'] .map-use-guide,
+:root[data-theme='dark'] .map-mode-toggle {
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  background: #111827;
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme='dark'] .arrival-head,
+:root[data-theme='dark'] .stops-head {
+  border-bottom: 1px solid #1e293b;
+}
+
+:root[data-theme='dark'] .arrival-row,
+:root[data-theme='dark'] .stop-button {
+  border-bottom: 1px solid #182030;
+}
+
+:root[data-theme='dark'] .stop-button:hover,
+:root[data-theme='dark'] .stop-button.is-selected {
+  background: #162032;
+}
+
+:root[data-theme='dark'] .quick-guide-banner {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+:root[data-theme='dark'] .quick-guide-text h4 {
+  color: #34d399;
+}
+
+:root[data-theme='dark'] .quick-guide-text p {
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .quick-guide-dismiss {
+  color: #34d399;
+}
+
+:root[data-theme='dark'] .quick-guide-dismiss:hover {
+  background-color: rgba(16, 185, 129, 0.15);
+}
+
+:root[data-theme='dark'] .nearest-button {
+  background: #059669;
+  color: #ffffff;
+  border: 1px solid #059669;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .nearest-button:hover {
+  background: #047857;
+}
+
+:root[data-theme='dark'] .crowd-button {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .crowd-select,
+:root[data-theme='dark'] .stop-search {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .brand-mark {
+  border-color: #334155;
+  background: #1e293b;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .live-chip,
+:root[data-theme='dark'] .driver-link {
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #f1f5f9;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .driver-link:hover {
+  background: #334155;
+}
+
+:root[data-theme='dark'] .route-chip {
+  background: #1e293b;
+  border-color: #334155;
+  color: #cbd5e1;
+  border-radius: 6px;
+}
+
+:root[data-theme='dark'] .arrival-action {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #cbd5e1;
+  border-radius: 6px;
+}
+
+:root[data-theme='dark'] .arrival-action:hover {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+:root[data-theme='dark'] .map-locate-button {
+  background: #10b981;
+  color: #ffffff;
+  border: 1px solid #059669;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .map-locate-button:hover {
+  background: #059669;
+}
+
+:root[data-theme='dark'] .passenger-faq-card {
+  background: #111827;
+  border: 1px solid #1e293b;
+}
+
+:root[data-theme='dark'] .passenger-faq-item {
+  background: #162032;
+  border: 1px solid #1e293b;
+}
+
+:root[data-theme='dark'] .ecosystem-link-item {
+  background: #162032;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .ecosystem-link-item:hover {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+:root[data-theme='dark'] .density-chip-btn {
+  background: #162032;
+  border: 1px solid #1e293b;
+  color: #94a3b8;
+  border-radius: 6px;
+}
+
+:root[data-theme='dark'] .density-chip-btn.is-active {
+  background: #064e3b;
+  border-color: #10b981;
+  color: #6ee7b7;
+}
+
+:root[data-theme='dark'] .theme-control {
+  border-color: #334155;
+  background: #1e293b;
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .theme-control select {
+  color: #f1f5f9;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg) brightness(0.88) contrast(0.92);
+  :root:not([data-theme='light']) .app-shell {
+    background: #0a0e17;
+  }
+
+  :root:not([data-theme='light']) .topbar {
+    background: #0d131f;
+    border-bottom: 1px solid #1e293b;
+  }
+
+  :root:not([data-theme='light']) .map-frame,
+  :root:not([data-theme='light']) .arrival-board,
+  :root:not([data-theme='light']) .stops-panel,
+  :root:not([data-theme='light']) .utility-panel,
+  :root:not([data-theme='light']) .campus-ecosystem-card,
+  :root:not([data-theme='light']) .studentplace-banner,
+  :root:not([data-theme='light']) .operating-banner,
+  :root:not([data-theme='light']) .map-use-guide,
+  :root:not([data-theme='light']) .map-mode-toggle {
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    background: #111827;
+    box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.4);
+  }
+
+  :root:not([data-theme='light']) .arrival-head,
+  :root:not([data-theme='light']) .stops-head {
+    border-bottom: 1px solid #1e293b;
+  }
+
+  :root:not([data-theme='light']) .arrival-row,
+  :root:not([data-theme='light']) .stop-button {
+    border-bottom: 1px solid #182030;
+  }
+
+  :root:not([data-theme='light']) .stop-button:hover,
+  :root:not([data-theme='light']) .stop-button.is-selected {
+    background: #162032;
+  }
+
+  :root:not([data-theme='light']) .quick-guide-banner {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+  }
+
+  :root:not([data-theme='light']) .quick-guide-text h4 {
+    color: #34d399;
+  }
+
+  :root:not([data-theme='light']) .quick-guide-text p {
+    color: #94a3b8;
+  }
+
+  :root:not([data-theme='light']) .quick-guide-dismiss {
+    color: #34d399;
+  }
+
+  :root:not([data-theme='light']) .quick-guide-dismiss:hover {
+    background-color: rgba(16, 185, 129, 0.15);
+  }
+
+  :root:not([data-theme='light']) .nearest-button {
+    background: #059669;
+    color: #ffffff;
+    border: 1px solid #059669;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .nearest-button:hover {
+    background: #047857;
+  }
+
+  :root:not([data-theme='light']) .crowd-button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #f1f5f9;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .crowd-select,
+  :root:not([data-theme='light']) .stop-search {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #f1f5f9;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .brand-mark {
+    border-color: #334155;
+    background: #1e293b;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .live-chip,
+  :root:not([data-theme='light']) .driver-link {
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #f1f5f9;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .driver-link:hover {
+    background: #334155;
+  }
+
+  :root:not([data-theme='light']) .route-chip {
+    background: #1e293b;
+    border-color: #334155;
+    color: #cbd5e1;
+    border-radius: 6px;
+  }
+
+  :root:not([data-theme='light']) .arrival-action {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    border-radius: 6px;
+  }
+
+  :root:not([data-theme='light']) .arrival-action:hover {
+    background: #334155;
+    color: #f1f5f9;
+  }
+
+  :root:not([data-theme='light']) .map-locate-button {
+    background: #10b981;
+    color: #ffffff;
+    border: 1px solid #059669;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .map-locate-button:hover {
+    background: #059669;
+  }
+
+  :root:not([data-theme='light']) .passenger-faq-card {
+    background: #111827;
+    border: 1px solid #1e293b;
+  }
+
+  :root:not([data-theme='light']) .passenger-faq-item {
+    background: #162032;
+    border: 1px solid #1e293b;
+  }
+
+  :root:not([data-theme='light']) .ecosystem-link-item {
+    background: #162032;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .ecosystem-link-item:hover {
+    background: #1e293b;
+    border-color: #334155;
+  }
+
+  :root:not([data-theme='light']) .density-chip-btn {
+    background: #162032;
+    border: 1px solid #1e293b;
+    color: #94a3b8;
+    border-radius: 6px;
+  }
+
+  :root:not([data-theme='light']) .density-chip-btn.is-active {
+    background: #064e3b;
+    border-color: #10b981;
+    color: #6ee7b7;
+  }
+
+  :root:not([data-theme='light']) .theme-control {
+    border-color: #334155;
+    background: #1e293b;
+    border-radius: 8px;
+  }
+
+  :root:not([data-theme='light']) .theme-control select {
+    color: #f1f5f9;
   }
 }
 

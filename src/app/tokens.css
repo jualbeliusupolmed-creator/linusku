@@ -13,11 +13,11 @@
   --theme-rule-light: oklch(80% 0.011 250); --theme-ink-rule-light: oklch(34% 0.014 262);
   --theme-accent-light: oklch(51% 0.22 264); --theme-accent-2-light: oklch(81% 0.16 82); --theme-accent-ink-light: oklch(99.5% 0.003 250); --theme-focus-light: oklch(51% 0.22 264);
   --theme-admin-accent-light: oklch(47% 0.18 150); --theme-admin-accent-soft-light: oklch(94% 0.035 150); --theme-admin-focus-light: oklch(47% 0.18 150);
-  --theme-paper-dark: oklch(17% 0.012 260); --theme-paper-2-dark: oklch(22% 0.014 260); --theme-paper-3-dark: oklch(27% 0.016 260);
-  --theme-ink-dark: oklch(95% 0.008 250); --theme-ink-2-dark: oklch(86% 0.01 250); --theme-muted-dark: oklch(70% 0.015 255);
-  --theme-rule-dark: oklch(40% 0.018 255); --theme-ink-rule-dark: oklch(62% 0.015 260);
-  --theme-accent-dark: oklch(72% 0.17 264); --theme-accent-2-dark: oklch(62% 0.13 82); --theme-accent-ink-dark: oklch(16% 0.02 260); --theme-focus-dark: oklch(82% 0.15 264);
-  --theme-admin-accent-dark: oklch(72% 0.16 150); --theme-admin-accent-soft-dark: oklch(28% 0.045 150); --theme-admin-focus-dark: oklch(82% 0.15 150);
+  --theme-paper-dark: #0a0e17; --theme-paper-2-dark: #111827; --theme-paper-3-dark: #162032;
+  --theme-ink-dark: #f1f5f9; --theme-ink-2-dark: #94a3b8; --theme-muted-dark: #64748b;
+  --theme-rule-dark: #1e293b; --theme-ink-rule-dark: #293548;
+  --theme-accent-dark: #10b981; --theme-accent-2-dark: #d97706; --theme-accent-ink-dark: #ffffff; --theme-focus-dark: #10b981;
+  --theme-admin-accent-dark: #10b981; --theme-admin-accent-soft-dark: #064e3b; --theme-admin-focus-dark: #34d399;
   --color-paper: var(--theme-paper-light); --color-paper-2: var(--theme-paper-2-light); --color-paper-3: var(--theme-paper-3-light);
   --color-ink: var(--theme-ink-light); --color-ink-2: var(--theme-ink-2-light); --color-muted: var(--theme-muted-light);
   --color-rule: var(--theme-rule-light); --color-ink-rule: var(--theme-ink-rule-light);
@@ -40,29 +40,31 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
+    --rule-bar: 1px;
     --color-paper: var(--theme-paper-dark); --color-paper-2: var(--theme-paper-2-dark); --color-paper-3: var(--theme-paper-3-dark);
     --color-ink: var(--theme-ink-dark); --color-ink-2: var(--theme-ink-2-dark); --color-muted: var(--theme-muted-dark);
     --color-rule: var(--theme-rule-dark); --color-ink-rule: var(--theme-ink-rule-dark);
     --color-accent: var(--theme-accent-dark); --color-accent-2: var(--theme-accent-2-dark); --color-accent-ink: var(--theme-accent-ink-dark); --color-focus: var(--theme-focus-dark);
     --color-admin-accent: var(--theme-admin-accent-dark); --color-admin-accent-soft: var(--theme-admin-accent-soft-dark); --color-admin-focus: var(--theme-admin-focus-dark);
-    --shadow-card: 0 24px 40px -24px oklch(0% 0 0 / 0.72);
-    --utility-slate-50: #111827; --utility-slate-100: #1f2937; --utility-slate-200: #334155; --utility-slate-300: #475569; --utility-slate-500: #94a3b8; --utility-slate-600: #cbd5e1; --utility-slate-700: #e2e8f0; --utility-slate-800: #f1f5f9; --utility-slate-900: #f8fafc; --utility-white: #1f2937;
-    --utility-emerald-50: #052e24; --utility-emerald-200: #34d399; --utility-emerald-600: #10b981; --utility-emerald-700: #6ee7b7; --utility-emerald-800: #a7f3d0;
-    --utility-amber-50: #3b2f12; --utility-amber-200: #fbbf24; --utility-amber-900: #fde68a;
-    --utility-rose-50: #3f1724; --utility-rose-200: #fb7185; --utility-rose-700: #fda4af; --utility-rose-800: #fecdd3;
+    --shadow-card: 0 16px 32px -16px rgba(0, 0, 0, 0.5);
+    --utility-slate-50: #0d131f; --utility-slate-100: #141c2b; --utility-slate-200: #1e293b; --utility-slate-300: #334155; --utility-slate-500: #64748b; --utility-slate-600: #94a3b8; --utility-slate-700: #cbd5e1; --utility-slate-800: #e2e8f0; --utility-slate-900: #f8fafc; --utility-white: #162032;
+    --utility-emerald-50: #064e3b33; --utility-emerald-200: #05966955; --utility-emerald-600: #10b981; --utility-emerald-700: #34d399; --utility-emerald-800: #6ee7b7;
+    --utility-amber-50: #78350f33; --utility-amber-200: #d9770655; --utility-amber-900: #fcd34d;
+    --utility-rose-50: #88133733; --utility-rose-200: #e11d4855; --utility-rose-700: #fda4af; --utility-rose-800: #fecdd3;
   }
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --rule-bar: 1px;
   --color-paper: var(--theme-paper-dark); --color-paper-2: var(--theme-paper-2-dark); --color-paper-3: var(--theme-paper-3-dark);
   --color-ink: var(--theme-ink-dark); --color-ink-2: var(--theme-ink-2-dark); --color-muted: var(--theme-muted-dark);
   --color-rule: var(--theme-rule-dark); --color-ink-rule: var(--theme-ink-rule-dark);
   --color-accent: var(--theme-accent-dark); --color-accent-2: var(--theme-accent-2-dark); --color-accent-ink: var(--theme-accent-ink-dark); --color-focus: var(--theme-focus-dark);
   --color-admin-accent: var(--theme-admin-accent-dark); --color-admin-accent-soft: var(--theme-admin-accent-soft-dark); --color-admin-focus: var(--theme-admin-focus-dark);
-  --shadow-card: 0 24px 40px -24px oklch(0% 0 0 / 0.72);
-  --utility-slate-50: #111827; --utility-slate-100: #1f2937; --utility-slate-200: #334155; --utility-slate-300: #475569; --utility-slate-500: #94a3b8; --utility-slate-600: #cbd5e1; --utility-slate-700: #e2e8f0; --utility-slate-800: #f1f5f9; --utility-slate-900: #f8fafc; --utility-white: #1f2937;
-  --utility-emerald-50: #052e24; --utility-emerald-200: #34d399; --utility-emerald-600: #10b981; --utility-emerald-700: #6ee7b7; --utility-emerald-800: #a7f3d0;
-  --utility-amber-50: #3b2f12; --utility-amber-200: #fbbf24; --utility-amber-900: #fde68a;
-  --utility-rose-50: #3f1724; --utility-rose-200: #fb7185; --utility-rose-700: #fda4af; --utility-rose-800: #fecdd3;
+  --shadow-card: 0 16px 32px -16px rgba(0, 0, 0, 0.5);
+  --utility-slate-50: #0d131f; --utility-slate-100: #141c2b; --utility-slate-200: #1e293b; --utility-slate-300: #334155; --utility-slate-500: #64748b; --utility-slate-600: #94a3b8; --utility-slate-700: #cbd5e1; --utility-slate-800: #e2e8f0; --utility-slate-900: #f8fafc; --utility-white: #162032;
+  --utility-emerald-50: #064e3b33; --utility-emerald-200: #05966955; --utility-emerald-600: #10b981; --utility-emerald-700: #34d399; --utility-emerald-800: #6ee7b7;
+  --utility-amber-50: #78350f33; --utility-amber-200: #d9770655; --utility-amber-900: #fcd34d;
+  --utility-rose-50: #88133733; --utility-rose-200: #e11d4855; --utility-rose-700: #fda4af; --utility-rose-800: #fecdd3;
 }
