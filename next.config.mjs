@@ -5,7 +5,7 @@ const nextConfig = {
     return [
       {
         // Restrict frame-ancestors only to admin page where embedding is needed for OAuth flow
-        source: '/admin',
+        source: '/admin/:path*',
         headers: [
           {
             key: 'Content-Security-Policy',
