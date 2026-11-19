@@ -477,6 +477,7 @@ body {
 }
 
 .map-frame {
+  position: relative;
   height: min(50dvh, 480px);
   min-height: 320px;
   border: var(--rule-bar) solid var(--color-ink);

@@ -27,10 +27,19 @@ export async function GET() {
 
   return NextResponse.json(
     {
-      stops: data.map((stop) => ({
-        ...stop,
-        sequenceOrder: stop.sequence_order,
-      })),
+      stops: data.map((stop) => {
+        const area =
+          typeof stop.area === 'string' &&
+          (stop.area === 'Jl. Dr. Mansyur' ||
+            stop.area.includes('Dr. Mansyur'))
+            ? 'Jl. Dr. T. Mansyur'
+            : stop.area;
+        return {
+          ...stop,
+          area,
+          sequenceOrder: stop.sequence_order,
+        };
+      }),
       source: 'database',
     },
     { headers: { 'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=10' } }
