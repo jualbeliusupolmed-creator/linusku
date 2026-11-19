@@ -4,9 +4,9 @@ import PwaRegistration from '@/components/PwaRegistration';
 import FrontendThemeShell from './frontend-theme';
 
 export const metadata: Metadata = {
-  title: 'LINUSKU — Live Tracker Bus Lintas USU',
+  title: 'LINUSKU — Pelacak Bus Lintas USU',
   description:
-    'Pantau posisi dan estimasi waktu tiba (ETA) Bus Lintas USU antar fakultas dan halte di Kampus USU Padang Bulan secara real-time.',
+    'Pantau posisi dan estimasi tiba Bus Lintas USU. Beroperasi Senin-Jumat 07.00-17.00 WIB.',
   applicationName: 'LINUSKU',
   manifest: '/manifest.webmanifest',
   icons: {
