@@ -868,6 +868,15 @@ export default function HomePage() {
             <span
               className={`live-chip focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${feedMode === 'live' ? 'is-live' : ''}`}
               role="status"
+              title={
+                feedMode === 'live'
+                  ? 'Posisi dikirim langsung oleh GPS supir'
+                  : feedMode === 'community'
+                    ? 'Posisi berbasis laporan sukarela mahasiswa'
+                    : feedMode === 'simulation'
+                      ? 'Pergerakan contoh, bukan bus nyata'
+                      : 'Koneksi posisi sedang tidak tersedia'
+              }
             >
               <Radio size={14} />
               <span>
@@ -1022,9 +1031,9 @@ export default function HomePage() {
                   aria-hidden="true"
                 />
                 <div className="quick-guide-text">
-                  <h4>Panduan Singkat Linus</h4>
+                      <h4>3 langkah memakai Linusku</h4>
                   <p>
-                    Sentuh pin halte di peta atau pilih dari daftar halte untuk memantau kedatangan bus Linus secara langsung.
+                        1. Pilih halte. 2. Cek perkiraan kedatangan. 3. Aktifkan pengingat atau bagikan posisi langsung dari halte.
                   </p>
                 </div>
               </div>
@@ -1116,7 +1125,7 @@ export default function HomePage() {
                       <BellRing size={15} style={{ color: 'var(--utility-emerald-600)' }} />
                       Pengingat Halte Aktif
                     </h4>
-                    <p>Notifikasi akan muncul saat bus ~2 menit dari {selectedStop.name}.</p>
+                        <p>Notifikasi muncul saat bus diperkirakan 10 menit dari {selectedStop.name}.</p>
                   </div>
                 </div>
                 <button
@@ -1279,11 +1288,11 @@ export default function HomePage() {
                           }`}
                           title={`Tingkat keyakinan estimasi: ${Math.round(details.confidence * 100)}%`}
                         >
-                          {isHighConfidence ? '🟢 Akurasi Tinggi' : isMediumConfidence ? '🟡 Estimasi Rute' : '⚪ Posisi Terakhir'}
+                          {isHighConfidence ? '🟢 Posisi Baru' : isMediumConfidence ? '🟡 Diperkirakan' : '⚪ Posisi Lama'}
                         </span>
                         <small className="arrival-source">
                           {isSimulation
-                            ? 'Contoh Simulasi'
+                            ? 'Contoh simulasi'
                             : bus.sourceType === 'driver'
                               ? 'GPS Driver'
                               : bus.sourceType === 'crowd'
@@ -1317,8 +1326,8 @@ export default function HomePage() {
 
           <section className="utility-panel" aria-label="Lokasi dan pelaporan penumpang">
             <div className="utility-heading">
-              <strong>Bantu Info Linus (Opsional)</strong>
-              <small>Lapor sukarela jika melihat bus lewat</small>
+              <strong>Bantu temankan Linus (Opsional)</strong>
+              <small>Laporkan kondisi yang benar-benar kamu lihat</small>
             </div>
 
             <button
@@ -1338,11 +1347,11 @@ export default function HomePage() {
 
             <div className="mt-3 border border-slate-200 bg-slate-50 p-2.5">
               <div className="flex items-center justify-between gap-1 text-xs font-bold text-slate-800">
-                <span>Melihat Linus di Halte {selectedStop.name}?</span>
+                <span>Bus Linus terlihat di halte ini?</span>
                 <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-1.5 py-0.2 rounded">Sukarela</span>
               </div>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                Bantu teman kampus: pilih kondisi muatan saat bus terlihat
+                Pilih kepadatan bus saat terlihat. Laporan tidak menggantikan posisi GPS supir.
               </p>
 
               <div className="density-chips">
@@ -1383,13 +1392,13 @@ export default function HomePage() {
               >
                 <MapPin size={15} />
                 {operatingStatus.isOpen
-                  ? `Kirim Laporan: Bus di Halte ${selectedStop.name}`
+                  ? `Kirim laporan untuk ${selectedStop.name}`
                   : 'Aktif saat jam operasional bus'}
               </button>
 
               <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-500">
                 <label className="flex items-center gap-1">
-                  <span>Armada:</span>
+                  <span>Nama bus:</span>
                   <select
                     value={crowdBusId}
                     disabled={fleet.length === 0}
@@ -1414,13 +1423,13 @@ export default function HomePage() {
                     fleet.length === 0
                   }
                   className="font-semibold text-emerald-700 hover:underline"
-                  title="Gunakan hanya jika kamu sedang berada di dalam armada Linus"
+                  title="Gunakan hanya jika lokasi kamu sedang berada di dalam bus Linus"
                 >
-                  Sedang di dalam bus? Kirim GPS
+                  Saya di dalam bus
                 </button>
               </div>
               <p className="mt-1.5 text-[10px] text-slate-500">
-                💡 Fitur gotong royong mahasiswa. Bukan tombol panggil bus. Laporan terverifikasi kedaluwarsa dalam 3 menit.
+                Laporan mahasiswa berlaku 3 menit dan hanya membantu perkiraan kepadatan. Ini bukan panggilan bus.
               </p>
             </div>
 

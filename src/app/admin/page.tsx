@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -287,14 +288,14 @@ interface DriverForm {
 
 const TABS: Array<{ id: AdminTab; label: string; icon: typeof Activity }> = [
   { id: 'overview', label: 'Ikhtisar', icon: Activity },
-  { id: 'fleet', label: 'Armada', icon: Bus },
-  { id: 'drivers', label: 'Akun', icon: Users },
-  { id: 'requests', label: 'Permintaan driver', icon: UserCheck },
+  { id: 'fleet', label: 'Bus', icon: Bus },
+  { id: 'drivers', label: 'Supir', icon: Users },
+  { id: 'requests', label: 'Izin Supir', icon: UserCheck },
   { id: 'stops', label: 'Halte', icon: MapPin },
   { id: 'reports', label: 'Laporan crowd', icon: FileText },
-  { id: 'operations', label: 'Jam dan rute', icon: Clock3 },
+  { id: 'operations', label: 'Jam & Jadwal', icon: Clock3 },
   { id: 'audit', label: 'Audit Log', icon: FileText },
-  { id: 'history', label: 'Riwayat GPS', icon: Clock3 },
+  { id: 'history', label: 'Riwayat Pergerakan', icon: Clock3 },
 ];
 
 const PAGE_SIZE = 10;
@@ -440,6 +441,7 @@ export default function AdminPage() {
   const [stopForm, setStopForm] = useState<StopForm>(EMPTY_STOP_FORM);
   const [qrModalStop, setQrModalStop] = useState<AdminStop | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const qrCacheRef = useRef<Map<string, string>>(new Map());
   const [serviceDays, setServiceDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [openingTime, setOpeningTime] = useState('07:00');
   const [closingTime, setClosingTime] = useState('17:00');
@@ -727,13 +729,14 @@ export default function AdminPage() {
         );
         setLastPositionCheck(payload.checkedAt);
         setPositionError('');
+        setNow(Date.now()); // Only update now when tab is visible and refresh runs
       } catch (error) {
         if (active) setPositionError(messageFromError(error));
       }
     };
     void refresh();
     const timer = window.setInterval(() => {
-      setNow(Date.now());
+      // Only run refresh when tab is visible; refresh() handles visibility check and updates now
       void refresh();
     }, 10000);
     return () => {
@@ -1447,7 +1450,13 @@ export default function AdminPage() {
       if (!origin) {
         throw new Error('Tidak dapat menentukan origin halaman untuk QR code.');
       }
-      const stopUrl = `${origin}/?stop=${encodeURIComponent(stop.id)}`;
+      const cacheKey = `${origin}/?stop=${encodeURIComponent(stop.id)}`;
+      const cached = qrCacheRef.current.get(cacheKey);
+      if (cached) {
+        setQrDataUrl(cached);
+        return;
+      }
+      const stopUrl = cacheKey;
       const url = await QRCode.toDataURL(stopUrl, {
         width: 320,
         margin: 2,
@@ -1456,6 +1465,7 @@ export default function AdminPage() {
           light: '#ffffff',
         },
       });
+      qrCacheRef.current.set(cacheKey, url);
       setQrDataUrl(url);
     } catch (err) {
       console.error('Failed to generate QR code', err);
@@ -1849,7 +1859,7 @@ export default function AdminPage() {
             {isAuthenticated
               ? (
                 <>
-                  {dataError || 'Akun ini belum memperoleh akses admin atau layanan admin belum siap.'}
+                  {dataError || 'Akun ini sudah masuk, tetapi belum ditetapkan sebagai pengelola LINUSKU.'}
                   {session?.user.email && (
                     <>
                       <br />
@@ -1858,7 +1868,7 @@ export default function AdminPage() {
                   )}
                 </>
               )
-              : 'Gunakan akun pengelola yang sudah diizinkan. Secret key tidak pernah dikirim ke browser.'}
+              : 'Masuk memakai akun pengelola yang sudah diizinkan oleh tim LINUSKU.'}
           </p>
           {!isAuthenticated && (
             <>
@@ -2698,15 +2708,10 @@ export default function AdminPage() {
                       >
                         <option value="">Belum ditugaskan</option>
                         {data.buses
-                          .filter((bus) => bus.is_active)
+                          .filter((bus) => bus.is_active && (!bus.driver_id || bus.driver_id === item.user_id))
                           .map((bus) => (
-                            <option
-                              key={bus.id}
-                              value={bus.id}
-                              disabled={Boolean(bus.driver_id) && bus.driver_id !== item.user_id}
-                            >
+                            <option key={bus.id} value={bus.id}>
                               {bus.id} — {bus.name}
-                              {bus.driver_id && bus.driver_id !== item.user_id ? ' (terisi)' : ''}
                             </option>
                           ))}
                       </select>

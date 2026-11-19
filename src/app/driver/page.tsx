@@ -961,12 +961,12 @@ export default function DriverPage() {
               </div>
               <div>
                 <h1 className="text-lg font-bold">
-                  {sessionEmail && !isDriver ? 'Profil LINUSKU' : 'Mode Tracker Driver'}
+                  {sessionEmail && !isDriver ? 'Akun LINUSKU' : 'Pelacak Bus Supir'}
                 </h1>
                 <p className="text-xs text-slate-500">
                   {isSupabaseConfigured
-                    ? 'Terhubung ke Supabase Auth & RLS'
-                    : 'Mode Simulasi Lokal (Tanpa DB)'}
+                    ? 'Hanya petugas yang ditugaskan dapat berbagi GPS'
+                    : 'Mode uji lokal — posisi tidak dikirim ke server'}
                 </p>
               </div>
             </div>
@@ -1082,10 +1082,10 @@ export default function DriverPage() {
                 <div>
                   <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
                     <ShieldCheck className="h-5 w-5 text-emerald-700" />
-                    {authMode === 'signup' ? 'Daftar akun LINUSKU' : 'Masuk ke LINUSKU'}
+                    {authMode === 'signup' ? 'Buat akun petugas' : 'Masuk sebagai petugas'}
                   </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Jenis akun dan akses driver hanya dapat diatur admin.
+                    Setelah masuk: ajukan akses bila perlu, tunggu penugasan admin, lalu mulai berbagi GPS.
                   </p>
                 </div>
                 {authMode === 'signup' && (
@@ -1250,17 +1250,17 @@ export default function DriverPage() {
                       </div>
                       {driverRequestStatus === 'pending' && (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">
-                          Permintaan driver sedang ditinjau admin. Status disegarkan otomatis setiap 15 detik.
+                          Tahap 1: permintaan dikirim. Tunggu admin meninjau dan menyetujui akun ini.
                         </div>
                       )}
                       {driverRequestStatus === 'approved' && (
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
-                          Akses driver telah disetujui. Penugasan armada akan muncul otomatis setelah admin menetapkannya.
+                          Tahap 2: akses disetujui. Admin sekarang harus menugaskan satu nama bus kepada akun ini.
                         </div>
                       )}
                       {driverRequestStatus === 'rejected' && (
                         <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900" role="status">
-                          Permintaan driver ditolak. Perbarui informasi dan kirim kembali bila diperlukan.
+                          Permintaan belum disetujui. Perbaiki data di bawah, lalu kirim ulang.
                         </div>
                       )}
                       {driverRequestError && (
@@ -1443,7 +1443,7 @@ export default function DriverPage() {
                 </label>
                 {!assignedBus && (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    Akun belum mendapat armada aktif. Minta admin menetapkan penugasan sebelum mulai GPS.
+                    Tahap 3 belum siap: akun belum ditugaskan ke sebuah bus. Hubungi admin agar nama bus muncul di sini sebelum mulai GPS.
                   </p>
                 )}
                 <button
@@ -1498,7 +1498,7 @@ export default function DriverPage() {
                   </p>
                   {deliveryState.queue.length > 0 && (
                     <p className="mt-1 text-xs text-slate-600">
-                      {deliveryState.queue.length} armada menunggu konfirmasi server.
+                      {deliveryState.queue.length} lokasi tersimpan menunggu konfirmasi server.
                     </p>
                   )}
                   {deliveryState.retryAt && (
