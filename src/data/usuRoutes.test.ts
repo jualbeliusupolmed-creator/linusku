@@ -17,6 +17,7 @@ import {
   isInsideCampus,
   findNearestStop,
   getLinusOperatingStatus,
+  isLinusOperatingHours,
   medianHistoricalSpeed,
   mergeLinuskuSettings,
   projectToRoute,
@@ -95,21 +96,22 @@ describe('USU route utilities', () => {
     expect(getLinusOperatingStatus(sunday).isOpen).toBe(false);
   });
 
-  it('uses admin-configured service days and opening hours', () => {
-    const settings = {
-      serviceDays: [1],
-      openingTime: '08:00',
-      closingTime: '09:00',
-      timeZone: 'Asia/Jakarta',
-    };
-
-    expect(
-      getLinusOperatingStatus(new Date('2026-11-23T00:30:00.000Z'), settings).isOpen
-    ).toBe(false);
-    expect(
-      getLinusOperatingStatus(new Date('2026-11-23T01:30:00.000Z'), settings).isOpen
-    ).toBe(true);
+  it('uses Asia/Jakarta and opens exactly at 07.00 WIB', () => {
+    const mondayBefore = new Date('2026-11-22T23:59:59.000Z');
+    const mondayAtOpening = new Date('2026-11-23T00:00:00.000Z');
+    expect(getLinusOperatingStatus(mondayBefore).isOpen).toBe(false);
+    expect(getLinusOperatingStatus(mondayAtOpening).isOpen).toBe(true);
   });
+
+  it('closes exactly at 17.00 WIB and remains closed on weekends', () => {
+    const fridayAtClosing = new Date('2026-11-20T10:00:00.000Z');
+    const fridayBeforeClosing = new Date('2026-11-20T09:59:59.000Z');
+    const saturday = new Date('2026-11-21T05:00:00.000Z');
+    expect(getLinusOperatingStatus(fridayBeforeClosing).isOpen).toBe(true);
+    expect(getLinusOperatingStatus(fridayAtClosing).isOpen).toBe(false);
+    expect(getLinusOperatingStatus(saturday).isOpen).toBe(false);
+  });
+
 
   it('normalizes migrated snake-case settings into the application shape', () => {
     const settings = mergeLinuskuSettings({

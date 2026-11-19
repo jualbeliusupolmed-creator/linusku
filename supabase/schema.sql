@@ -235,7 +235,7 @@ where stop.id in (select id from linus_stop_ids);
 
 insert into public.stops (id, name, area, lat, lng, sequence_order) values
   ('halte-pintu-1', 'Halte Pintu 1 / Gelanggang', 'Jl. Universitas (Pintu 1)', 3.5656, 98.6594, 1),
-  ('halte-fk', 'Halte FK / RS USU', 'Jl. Dr. Mansyur', 3.5673, 98.6552, 2),
+  ('halte-fk', 'Halte FK / RS USU', 'Jl. Dr. T. Mansyur', 3.5673, 98.6552, 2),
   ('halte-biro', 'Halte Biro Rektor / Pancasila', 'Jl. Dr. T. Mansyur', 3.5668, 98.6528, 3),
   ('halte-vokasi', 'Halte Fakultas Vokasi / Pintu 4', 'Jl. Tri Dharma', 3.5618, 98.6519, 4),
   ('halte-fmipa', 'Halte FMIPA & Fasilkom-TI', 'Jl. Bioteknologi', 3.5592, 98.6542, 5),

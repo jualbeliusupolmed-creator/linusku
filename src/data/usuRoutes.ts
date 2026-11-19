@@ -840,7 +840,7 @@ export const USU_STOPS: BusStop[] = [
   {
     id: 'halte-fk',
     name: 'Halte FK / RS USU',
-    area: 'Jl. Dr. Mansyur',
+    area: 'Jl. Dr. T. Mansyur',
     lat: 3.5673,
     lng: 98.6552,
     sequenceOrder: 2,
@@ -985,12 +985,9 @@ export function findNearestStop(
   }).sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
 }
 
-export function getLinusOperatingStatus(
-  now = new Date(),
-  settings: LinusOperatingSettings = DEFAULT_OPERATING_SETTINGS
-) {
+export function isLinusOperatingHours(now = new Date()): boolean {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: settings.timeZone,
+    timeZone: 'Asia/Jakarta',
     weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
@@ -1011,34 +1008,20 @@ export function getLinusOperatingStatus(
     Sat: 6,
     Sun: 7,
   };
-  const openingMinutes =
-    Number(settings.openingTime.slice(0, 2)) * 60 +
-    Number(settings.openingTime.slice(3, 5));
-  const closingMinutes =
-    Number(settings.closingTime.slice(0, 2)) * 60 +
-    Number(settings.closingTime.slice(3, 5));
   const isOpen =
-    settings.serviceDays.includes(weekdayNumber[weekday]) &&
-    totalMinutes >= openingMinutes &&
-    totalMinutes < closingMinutes;
-  const dayNames = [
-    '',
-    'Senin',
-    'Selasa',
-    'Rabu',
-    'Kamis',
-    'Jumat',
-    'Sabtu',
-    'Minggu',
-  ];
-  const serviceDayLabel =
-    settings.serviceDays.length === 5 &&
-    settings.serviceDays.every((day, index) => day === index + 1)
-      ? 'Senin sampai Jumat'
-      : settings.serviceDays.map((day) => dayNames[day]).join(', ');
-  const formatTime = (time: string) => time.replace(':', '.');
-  const hoursLabel = `${formatTime(settings.openingTime)} sampai ${formatTime(settings.closingTime)} WIB`;
+    [1, 2, 3, 4, 5].includes(weekdayNumber[weekday]) &&
+    totalMinutes >= 7 * 60 &&
+    totalMinutes < 17 * 60;
+  return isOpen;
+}
 
+export function getLinusOperatingStatus(
+  now = new Date(),
+  _settings: LinusOperatingSettings = DEFAULT_OPERATING_SETTINGS
+) {
+  const isOpen = isLinusOperatingHours(now);
+  const serviceDayLabel = 'Senin sampai Jumat';
+  const hoursLabel = '07.00 sampai 17.00 WIB';
   return {
     isOpen,
     label: isOpen
