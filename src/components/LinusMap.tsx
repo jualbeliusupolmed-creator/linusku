@@ -453,8 +453,8 @@ export default function LinusMap({
                   <p className="map-popup-detail text-xs">
                     Status:{' '}
                     {isStationary
-                      ? '🛑 Berhenti / Naik-turun'
-                      : `⚡ Melaju (~${Math.round(bus.speedKmh)} km/jam)`}
+                      ? 'Berhenti / naik-turun'
+                      : `Melaju (sekitar ${Math.round(bus.speedKmh)} km/jam)`}
                   </p>
                   <p className="map-popup-detail text-xs">
                     Kepadatan:{' '}

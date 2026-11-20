@@ -221,7 +221,7 @@ export async function GET() {
   if (memoryCache && now < memoryCache.expiresAt) {
     return NextResponse.json(memoryCache.data, {
       headers: {
-        'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=5',
+        'Cache-Control': 'no-store',
         'X-Linus-Cache': 'HIT',
       },
     });
@@ -242,7 +242,7 @@ export async function GET() {
 
     return NextResponse.json(freshData, {
       headers: {
-        'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=5',
+        'Cache-Control': 'no-store',
         'X-Linus-Cache': 'MISS',
       },
     });
@@ -251,15 +251,6 @@ export async function GET() {
       '[positions] Could not load current bus positions:',
       err instanceof Error ? err.message : err
     );
-    if (memoryCache) {
-      return NextResponse.json(memoryCache.data, {
-        headers: {
-          'Cache-Control': 'public, s-maxage=2, stale-while-revalidate=5',
-          'X-Linus-Cache': 'STALE',
-        },
-      });
-    }
-
     return NextResponse.json(
       { error: 'Posisi bus belum dapat dimuat.', buses: [], mode: 'offline' },
       { status: 503 }

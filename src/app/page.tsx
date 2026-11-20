@@ -1280,10 +1280,18 @@ export default function HomePage() {
                 );
                 const isStale =
                   diffSec > etaSettings.staleThresholdSeconds;
-                const isStationary = bus.speedKmh <= 2;
                 const isSimulation = !operatingStatus.isOpen || feedMode === 'simulation';
+                const isDelayed =
+                  !isSimulation &&
+                  diffSec > 20 &&
+                  diffSec <= etaSettings.staleThresholdSeconds;
+                const isStationary = bus.speedKmh <= 2;
                 const freshnessText =
-                  diffSec < 20
+                  isSimulation
+                    ? 'data contoh'
+                    : isDelayed
+                      ? `Lokasi tertunda (${diffSec} dtk lalu)`
+                      : diffSec < 20
                     ? 'GPS baru (<20 dtk)'
                     : `Update ${diffSec < 60 ? `${diffSec} dtk` : `${Math.floor(diffSec / 60)} mnt`} lalu`;
 

@@ -10,6 +10,12 @@ const SHELL = [
   '/stickers/mascot-halte.png',
 ];
 const NEVER_CACHE_PATHS = ['/admin', '/driver'];
+const NEVER_CACHE_API_PATHS = [
+  '/api/positions',
+  '/api/crowd',
+  '/api/driver',
+  '/api/passenger',
+];
 const STATIC_DESTINATIONS = new Set([
   'font',
   'image',
@@ -20,12 +26,18 @@ const STATIC_DESTINATIONS = new Set([
 ]);
 
 function isNeverCachedPath(pathname) {
-  if (pathname.startsWith('/api/') && ![
-    '/api/positions',
-    '/api/stops',
-    '/api/settings',
-    '/api/route',
-  ].includes(pathname)) {
+  if (
+    pathname.startsWith('/api/') &&
+    (NEVER_CACHE_API_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`)
+    ) ||
+      ![
+        '/api/stops',
+        '/api/settings',
+        '/api/route',
+        '/api/health',
+      ].includes(pathname))
+  ) {
     return true;
   }
   return NEVER_CACHE_PATHS.some(
