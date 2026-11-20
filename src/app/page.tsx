@@ -116,6 +116,7 @@ export default function HomePage() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingPositions, setIsLoadingPositions] = useState(true);
   const [nearestInfo, setNearestInfo] = useState<{
     stopName: string;
     distanceMeters: number;
@@ -384,12 +385,18 @@ export default function HomePage() {
         const response = await fetch('/api/route');
         const payload = (await response.json()) as {
           points?: [number, number][];
+          source?: 'osrm' | 'fallback';
           error?: string;
         };
         if (!response.ok || !payload.points || payload.points.length < 2) {
           throw new Error(payload.error ?? 'Geometri rute belum tersedia.');
         }
-        if (active) setRoutePolyline(payload.points);
+        if (active) {
+          setRoutePolyline(payload.points);
+          if (payload.source === 'fallback') {
+            setStatusMessage('Jalur cadangan digunakan. Estimasi kedatangan bisa kurang akurat.');
+          }
+        }
       } catch {
         if (active) {
           setStatusMessage('Geometri jalan rute belum dapat dimuat. Halte tetap ditampilkan.');
@@ -531,6 +538,7 @@ export default function HomePage() {
   const fetchPositions = useCallback(async (showSpinner = false) => {
     const isOperatingNow = getLinusOperatingStatus(new Date(), DEFAULT_OPERATING_SETTINGS).isOpen;
     if (showSpinner) setIsRefreshing(true);
+    setIsLoadingPositions(true);
     try {
       const res = await fetch('/api/positions', {
         method: 'GET',
@@ -572,6 +580,7 @@ export default function HomePage() {
       );
     } finally {
       if (showSpinner) setIsRefreshing(false);
+      setIsLoadingPositions(false);
     }
   }, []);
 
@@ -862,6 +871,25 @@ export default function HomePage() {
     });
   }, [stopQuery, favoriteStopIds, stops, sortByNearest, currentLocation]);
   const operationsError = settingsError || stopsError || fleetError;
+  const mapStatus = (() => {
+    if (isLoadingPositions) return 'loading';
+    if (!operatingStatus.isOpen) return 'simulation';
+    const now = Date.now();
+    const hasFreshDriverData = buses.some(
+      (bus) =>
+        bus.sourceType === 'driver' &&
+        now - new Date(bus.updatedAt).getTime() <= 20_000
+    );
+    if (hasFreshDriverData) return 'live';
+    const hasDelayedData = buses.some(
+      (bus) =>
+        bus.sourceType === 'driver' &&
+        now - new Date(bus.updatedAt).getTime() <= etaSettings.staleThresholdSeconds * 1000
+    );
+    if (hasDelayedData) return 'delayed';
+    if (feedMode === 'community') return 'community';
+    return 'offline';
+  })();
 
   return (
     <div className="app-shell">
@@ -916,7 +944,7 @@ export default function HomePage() {
                 {!operatingStatus.isOpen
                   ? 'Demo / Simulasi'
                   : feedMode === 'live'
-                    ? 'Bus Live'
+                    ? 'Posisi Segar'
                     : feedMode === 'community'
                       ? 'Laporan Mhs'
                       : feedMode === 'simulation'
@@ -1030,11 +1058,30 @@ export default function HomePage() {
       <main className="app-main">
         <section className="map-column" id="peta" aria-label="Peta rute Linus">
           <div className="map-frame">
-            {!operatingStatus.isOpen && (
-              <span className="map-status-chip is-simulation" role="status" style={{ position: 'absolute', top: 52, left: 12, zIndex: 500 }}>
-                <i aria-hidden="true" /> DEMO / SIMULASI
-              </span>
-            )}
+            <span
+              className={`map-status-chip ${
+                mapStatus === 'live'
+                  ? 'is-live'
+                  : mapStatus === 'simulation'
+                    ? 'is-simulation'
+                    : 'is-delayed'
+              }`}
+              role="status"
+              style={{ position: 'absolute', top: 52, left: 12, zIndex: 500 }}
+            >
+              <i aria-hidden="true" />
+              {mapStatus === 'simulation'
+                ? 'DEMO / SIMULASI'
+                : mapStatus === 'loading'
+                  ? 'MEMUAT POSISI'
+                : mapStatus === 'live'
+                  ? 'POSISI SEGAR'
+                  : mapStatus === 'delayed'
+                    ? 'POSISI TERLAMBAT'
+                    : mapStatus === 'community'
+                      ? 'LAPORAN MAHASISWA'
+                      : 'GPS TIDAK TERSEDIA'}
+            </span>
             <LinusMap
               buses={buses}
               stops={stops}
@@ -1248,7 +1295,12 @@ export default function HomePage() {
               </p>
             )}
 
-            {stopEtas.length === 0 ? (
+            {isLoadingPositions ? (
+              <div className="flex flex-col items-center justify-center p-6 text-center" role="status" aria-live="polite">
+                <RefreshCw size={24} className="mb-2 animate-spin text-emerald-700" aria-hidden="true" />
+                <p className="text-sm font-bold text-slate-800">Memuat posisi bus…</p>
+              </div>
+            ) : stopEtas.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-6 text-center">
                 <img
                   src="/stickers/mascot-halte.png"
@@ -1564,6 +1616,13 @@ export default function HomePage() {
               onClick={() => setShowInfoCard(!showInfoCard)}
               role="button"
               tabIndex={0}
+              aria-expanded={showInfoCard}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setShowInfoCard((current) => !current);
+                }
+              }}
             >
               <span className="flex items-center gap-1.5 font-bold">
                 <Info size={15} className="text-emerald-700" />

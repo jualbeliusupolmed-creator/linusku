@@ -129,6 +129,16 @@ body {
   background: var(--utility-emerald-600);
 }
 
+.map-status-chip.is-delayed {
+  border-color: var(--utility-amber-200);
+  background: var(--utility-amber-50);
+  color: var(--utility-amber-900);
+}
+
+.map-status-chip.is-delayed i {
+  background: var(--utility-amber-700);
+}
+
 .map-mode-button {
   min-height: 32px;
   display: inline-flex;
