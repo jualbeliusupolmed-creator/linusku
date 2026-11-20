@@ -357,13 +357,23 @@ export default function LinusMap({
             >
               <Popup>
                 <div className="min-w-[130px] text-center">
-                  <p className="map-popup-name font-bold text-blue-700">📍 Posisi Kamu</p>
+                  <p className="map-popup-name font-bold text-blue-700">Posisi Kamu</p>
                   <p className="text-[11px] text-slate-500">Titik lokasi GPS kamu</p>
                 </div>
               </Popup>
             </CircleMarker>
           </>
         )}
+
+        <Polygon
+          positions={OUTSIDE_CAMPUS_MASK}
+          pathOptions={{
+            fillRule: 'evenodd',
+            fillColor: '#0f172a',
+            fillOpacity: 0.18,
+            stroke: false,
+          }}
+        />
 
         <Polyline
           positions={routePolyline}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'linusku-shell-v4';
+const CACHE_NAME = 'linusku-shell-v5';
 const SHELL = [
   '/',
   '/manifest.webmanifest',

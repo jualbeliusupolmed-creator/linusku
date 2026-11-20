@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!stopId && !isNearRouteWithSettings(lat, lng, settings)) {
+  if (!isNearRouteWithSettings(lat, lng, settings)) {
     return NextResponse.json(
       { error: 'Lokasi harus berada dekat rute Linus.' },
       { status: 400 }

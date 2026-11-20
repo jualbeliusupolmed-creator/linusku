@@ -46,32 +46,12 @@ function parseSettings(value: unknown): SettingsInput | null {
   const service = input.service;
   if (service !== undefined) {
     if (!isRecord(service)) return null;
-    const { serviceDays, openingTime, closingTime, timeZone } = service;
-    let validTimeZone = 'Asia/Jakarta';
-    if (typeof timeZone === 'string') {
-      try {
-        new Intl.DateTimeFormat('en', { timeZone });
-        validTimeZone = timeZone;
-      } catch {
-        validTimeZone = 'Asia/Jakarta';
-      }
-    }
-    if (
-      !Array.isArray(serviceDays) ||
-      serviceDays.length === 0 ||
-      !serviceDays.every(
-        (day) => Number.isInteger(day) && Number(day) >= 1 && Number(day) <= 7
-      ) ||
-      new Set(serviceDays).size !== serviceDays.length ||
-      typeof openingTime !== 'string' ||
-      typeof closingTime !== 'string' ||
-      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(openingTime) ||
-      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(closingTime) ||
-      openingTime >= closingTime
-    ) {
-      return null;
-    }
-    result.service = { serviceDays: serviceDays as number[], openingTime, closingTime, timeZone: validTimeZone };
+    result.service = {
+      serviceDays: [1, 2, 3, 4, 5],
+      openingTime: '07:00',
+      closingTime: '17:00',
+      timeZone: 'Asia/Jakarta',
+    };
   }
 
   const schedule = input.schedule;

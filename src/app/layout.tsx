@@ -10,7 +10,10 @@ export const metadata: Metadata = {
   applicationName: 'LINUSKU',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    icon: [
+      { url: '/icon.png', type: 'image/png', sizes: '512x512' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
   },
   appleWebApp: {
     capable: true,

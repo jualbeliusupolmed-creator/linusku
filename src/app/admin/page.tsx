@@ -699,9 +699,9 @@ export default function AdminPage() {
   useEffect(() => {
     if (!data?.settings) return;
     if (data.settings.service) {
-      setServiceDays(data.settings.service.serviceDays);
-      setOpeningTime(data.settings.service.openingTime);
-      setClosingTime(data.settings.service.closingTime);
+      setServiceDays([1, 2, 3, 4, 5]);
+      setOpeningTime('07:00');
+      setClosingTime('17:00');
     }
     setScheduleSettings(data.settings.schedule ?? DEFAULT_SCHEDULE_SETTINGS);
     setEtaSettings(data.settings.eta ?? DEFAULT_ETA_SETTINGS);
@@ -1401,7 +1401,12 @@ export default function AdminPage() {
       '/api/admin/settings',
       'PUT',
       {
-        service: { serviceDays, openingTime, closingTime, timeZone: 'Asia/Jakarta' },
+        service: {
+          serviceDays: [1, 2, 3, 4, 5],
+          openingTime: '07:00',
+          closingTime: '17:00',
+          timeZone: 'Asia/Jakarta',
+        },
         schedule: scheduleSettings,
         eta: etaSettings,
         map: mapSettings,
@@ -3521,6 +3526,9 @@ export default function AdminPage() {
             <form className="admin-form admin-settings-form" onSubmit={submitSettings}>
               <fieldset className="admin-day-fieldset">
                 <legend>Hari beroperasi</legend>
+                <p className="admin-field-help">
+                  Jadwal operasional resmi tetap Senin-Jumat, 07.00-17.00 WIB.
+                </p>
                 <div className="admin-day-list">
                   {DAYS.map((day) => (
                     <label className="admin-day" key={day.id}>
@@ -3528,6 +3536,7 @@ export default function AdminPage() {
                         type="checkbox"
                         checked={serviceDays.includes(day.id)}
                         onChange={() => toggleDay(day.id)}
+                        disabled
                       />
                       {day.label}
                     </label>
@@ -3542,6 +3551,7 @@ export default function AdminPage() {
                     type="time"
                     value={openingTime}
                     onChange={(event) => setOpeningTime(event.target.value)}
+                    disabled
                     required
                   />
                 </label>
@@ -3552,6 +3562,7 @@ export default function AdminPage() {
                     type="time"
                     value={closingTime}
                     onChange={(event) => setClosingTime(event.target.value)}
+                    disabled
                     required
                   />
                 </label>

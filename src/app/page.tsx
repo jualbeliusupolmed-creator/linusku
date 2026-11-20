@@ -110,6 +110,7 @@ export default function HomePage() {
 
   const [selectedStopId, setSelectedStopId] = useState<string>(USU_STOPS[0].id);
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
+  const [routeSource, setRouteSource] = useState<'osrm' | 'fallback' | null>(null);
   const [favoriteStopIds, setFavoriteStopIds] = useState<string[]>([]);
   const [stopQuery, setStopQuery] = useState('');
   const [feedMode, setFeedMode] = useState<'live' | 'community' | 'simulation' | 'offline'>('offline');
@@ -262,32 +263,6 @@ export default function HomePage() {
     } catch {}
   };
 
-  // Deteksi lokasi otomatis saat pertama buka, tanpa memaksa pengguna
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
-    // Hanya coba sekali per sesi, tanpa blocking
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setCurrentLocation({ lat, lng });
-        const nearest = findNearestStop(lat, lng, stops.length ? stops : USU_STOPS);
-        // Jika halte terdeteksi berbeda dari default, tawarkan saran ke user
-        if (nearest.stop.id !== selectedStopId) {
-          setNearestStopSuggestion({
-            stopId: nearest.stop.id,
-            stopName: nearest.stop.name,
-            distanceMeters: nearest.distanceMeters,
-          });
-        }
-      },
-      () => { /* Diam jika pengguna menolak izin */ },
-      { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
-    );
-    // Hanya jalan sekali pada mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Muat pengaturan yang diubah admin beserta geometri rute terbaru.
   useEffect(() => {
     let active = true;
@@ -393,12 +368,14 @@ export default function HomePage() {
         }
         if (active) {
           setRoutePolyline(payload.points);
+          setRouteSource(payload.source ?? null);
           if (payload.source === 'fallback') {
             setStatusMessage('Jalur cadangan digunakan. Estimasi kedatangan bisa kurang akurat.');
           }
         }
       } catch {
         if (active) {
+          setRouteSource(null);
           setStatusMessage('Geometri jalan rute belum dapat dimuat. Halte tetap ditampilkan.');
         }
       }
@@ -491,6 +468,12 @@ export default function HomePage() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ favoriteStopIds: next }),
+        }).then((response) => {
+          if (!response.ok) {
+            setToastMessage('Favorit tersimpan di perangkat, tetapi sinkronisasi akun gagal.');
+          }
+        }).catch(() => {
+          setToastMessage('Favorit tersimpan di perangkat, tetapi sinkronisasi akun gagal.');
         });
       }).catch(() => undefined);
     }
@@ -526,13 +509,13 @@ export default function HomePage() {
   const copySelectedEtaUrl = async () => {
     const result = await copyEtaUrl(selectedStop.id);
     setShareStatus(result.message);
-    setToastMessage(`📋 Tautan Halte ${selectedStop.name} disalin!`);
+    setToastMessage(`Tautan Halte ${selectedStop.name} disalin.`);
   };
 
   const shareSelectedEtaUrl = async () => {
     const result = await shareEtaUrl(selectedStop.id);
     setShareStatus(result.message);
-    setToastMessage(`🔗 Tautan Halte ${selectedStop.name} siap dibagikan!`);
+    setToastMessage(`Tautan Halte ${selectedStop.name} siap dibagikan.`);
   };
 
   const fetchPositions = useCallback(async (showSpinner = false) => {
@@ -573,6 +556,8 @@ export default function HomePage() {
       );
     } catch {
       setFeedMode('offline');
+      setBuses([]);
+      setLastSyncedAt(null);
       setStatusMessage(
         isOperatingNow
           ? 'Periksa koneksi internetmu. Pengambilan data posisi sedang gagal.'
@@ -598,7 +583,10 @@ export default function HomePage() {
     }, POLL_INTERVAL_MS);
 
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
+      if (
+        document.visibilityState === 'visible' &&
+        getLinusOperatingStatus(new Date(), DEFAULT_OPERATING_SETTINGS).isOpen
+      ) {
         fetchPositions(false);
       }
     };
@@ -1171,8 +1159,7 @@ export default function HomePage() {
               <div className="arrival-head-actions">
                 <span className="route-chip">
                   <Clock size={13} aria-hidden="true" />
-                  {serviceSettings.openingTime.replace(':', '.')}-
-                  {serviceSettings.closingTime.replace(':', '.')}
+                  07.00-17.00
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -1445,6 +1432,7 @@ export default function HomePage() {
                               : bus.sourceType === 'crowd'
                                 ? 'Laporan Mahasiswa'
                                 : 'Simulasi'} · {freshnessText} · ~{details.distanceKm.toFixed(1)} km
+                          {routeSource === 'fallback' ? ' · Jalur cadangan' : ''}
                         </small>
                       </div>
 

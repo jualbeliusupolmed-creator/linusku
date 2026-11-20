@@ -35,6 +35,14 @@ Audit awal berfokus pada alur utama mahasiswa: buka aplikasi, pilih halte, memah
 - Panel panduan dapat dibuka dengan keyboard.
 - Polling sekarang berhenti saat di luar jam operasional.
 - Jalur fallback rute menampilkan peringatan bahwa estimasi dapat kurang akurat.
+- Lokasi pengguna tidak diminta otomatis saat halaman dibuka; permintaan hanya terjadi setelah aksi pengguna.
+- Polling berhenti pada tab yang kembali aktif di luar jam operasional.
+- Pengambilan posisi gagal sekarang mengosongkan data lama dan menghapus waktu sinkronisasi lama.
+- Peta menampilkan mask area luar kampus.
+- Laporan crowd tidak lagi melewati validasi kedekatan rute hanya karena `stopId` ada.
+- Sinkronisasi favorit menampilkan pesan saat akun gagal menyimpan preferensi.
+- Ikon PWA PNG 512x512 ditambahkan ke manifest dan metadata aplikasi.
+- Jadwal operasional tetap dipaksakan menjadi Senin-Jumat 07.00-17.00 WIB pada API admin dan UI admin.
 
 ## Batas yang memerlukan verifikasi manusia
 
