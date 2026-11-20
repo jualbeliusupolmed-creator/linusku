@@ -589,7 +589,10 @@ export default function HomePage() {
     fetchPositions(false);
 
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (
+        document.visibilityState === 'visible' &&
+        getLinusOperatingStatus(new Date(), DEFAULT_OPERATING_SETTINGS).isOpen
+      ) {
         fetchPositions(false);
       }
     }, POLL_INTERVAL_MS);
@@ -1045,15 +1048,6 @@ export default function HomePage() {
           <ExternalLink size={16} aria-hidden="true" />
         </a>
       </div>
-
-      <a
-        href="#panduan-naik-linus"
-        className="passenger-faq-title"
-        aria-label="Buka Panduan dan Aturan Naik Linus"
-        style={{ display: 'flex', margin: '8px 16px 0', justifyContent: 'center' }}
-      >
-        Panduan &amp; Aturan Naik Linus
-      </a>
 
       <main className="app-main">
         <section className="map-column" id="peta" aria-label="Peta rute Linus">
