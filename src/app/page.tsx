@@ -261,7 +261,7 @@ export default function HomePage() {
     } catch {}
   };
 
-  // Deteksi lokasi otomatis saat pertama buka (passive — tidak paksa user)
+  // Deteksi lokasi otomatis saat pertama buka, tanpa memaksa pengguna
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
     // Hanya coba sekali per sesi, tanpa blocking
@@ -280,7 +280,7 @@ export default function HomePage() {
           });
         }
       },
-      () => { /* Silent — user mungkin menolak izin */ },
+      () => { /* Diam jika pengguna menolak izin */ },
       { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
     );
     // Hanya jalan sekali pada mount
@@ -468,7 +468,7 @@ export default function HomePage() {
     const isNowFavorite = next.includes(stopId);
     setToastMessage(
       isNowFavorite
-        ? `⭐ Halte ${targetStop?.name || ''} disimpan ke favorit!`
+        ? `Halte ${targetStop?.name || ''} disimpan ke favorit!`
         : `Halte ${targetStop?.name || ''} dihapus dari favorit.`
     );
 
@@ -504,7 +504,7 @@ export default function HomePage() {
         ? 'Izin notifikasi ditolak browser.'
         : 'Izin notifikasi belum diberikan browser.';
       setNotificationStatus(msg);
-      setToastMessage(`⚠️ ${msg}`);
+      setToastMessage(msg);
       return;
     }
     const saved = setPassengerNotificationsOptedIn(true);
@@ -513,7 +513,7 @@ export default function HomePage() {
       ? 'Notifikasi keberangkatan aktif untuk halte favorit.'
       : 'Preferensi notifikasi tidak dapat disimpan di perangkat ini.';
     setNotificationStatus(msg);
-    setToastMessage(saved ? '🔔 Pengingat bus aktif!' : msg);
+    setToastMessage(saved ? 'Pengingat bus aktif!' : msg);
   };
 
   const copySelectedEtaUrl = async () => {
@@ -898,15 +898,15 @@ export default function HomePage() {
               onClick={() => {
                 const messages: Record<string, string> = {
                   live: operatingStatus.isOpen
-                    ? '📡 Posisi segar — Posisi dikirim langsung oleh GPS supir tiap 3–5 detik'
-                    : '🎮 Di luar jam operasional — Peta menampilkan simulasi demo',
+                    ? 'Posisi segar: dikirim langsung oleh GPS supir tiap 3–5 detik'
+                    : 'Di luar jam operasional: peta menampilkan simulasi demo',
                   community: operatingStatus.isOpen
-                    ? '👥 Laporan Mhs — Posisi berbasis laporan sukarela mahasiswa'
-                    : '🎮 Di luar jam operasional — Peta menampilkan simulasi demo',
-                  simulation: '🎮 Simulasi — Pergerakan contoh untuk demo, bukan bus nyata',
+                    ? 'Laporan mahasiswa: posisi berbasis laporan sukarela mahasiswa'
+                    : 'Di luar jam operasional: peta menampilkan simulasi demo',
+                  simulation: 'Simulasi: pergerakan contoh untuk demo, bukan bus nyata',
                   offline: operatingStatus.isOpen
-                    ? '📴 Offline — Periksa koneksi internet untuk mengambil posisi'
-                    : '🎮 Di luar jam operasional — Peta menampilkan simulasi demo',
+                    ? 'Offline: periksa koneksi internet untuk mengambil posisi'
+                    : 'Di luar jam operasional: peta menampilkan simulasi demo',
                 };
                 setToastMessage(messages[feedMode] ?? messages.offline);
               }}
@@ -948,7 +948,7 @@ export default function HomePage() {
       {nearestStopSuggestion && (
         <div className="nearest-stop-banner" role="alert">
           <span className="nearest-stop-banner-text">
-            📍 Kamu terdeteksi dekat <strong>{nearestStopSuggestion.stopName}</strong>
+            Kamu terdeteksi dekat <strong>{nearestStopSuggestion.stopName}</strong>
             {' '}(~{nearestStopSuggestion.distanceMeters} m). Lihat jadwal halte ini?
           </span>
           <div className="nearest-stop-banner-actions">
@@ -958,7 +958,7 @@ export default function HomePage() {
               onClick={() => {
                 handleSelectStop(nearestStopSuggestion.stopId);
                 setNearestStopSuggestion(null);
-                setToastMessage(`📍 Beralih ke ${nearestStopSuggestion.stopName}`);
+                setToastMessage(`Beralih ke ${nearestStopSuggestion.stopName}`);
               }}
             >
               Ya, ganti halte
@@ -1049,7 +1049,7 @@ export default function HomePage() {
               feedMode={feedMode}
               isOperating={operatingStatus.isOpen}
             />
-            {/* Overlay tegas saat bus TIDAK beroperasi — dapat ditutup agar peta tetap bisa dilihat */}
+            {/* Overlay saat bus tidak beroperasi, dapat ditutup agar peta tetap terlihat */}
             {!operatingStatus.isOpen && !isClosedOverlayDismissed && (
               <div
                 className="map-closed-overlay cursor-pointer"
@@ -1073,8 +1073,8 @@ export default function HomePage() {
                   <img src="/stickers/mascot-halte.png" alt="" className="w-14 h-14 object-contain" aria-hidden="true" />
                   <p className="map-closed-title">Bus Linus Sedang Istirahat</p>
                   <p className="map-closed-sub">
-                    Pergerakan di bawah adalah <strong>simulasi demo</strong> saja — bukan posisi bus nyata.
-                    <br />Beroperasi <strong>Senin–Jumat 07.00–17.00 WIB</strong>.
+                    Pergerakan di bawah adalah <strong>simulasi demo</strong>, bukan posisi bus nyata.
+                    <br />Beroperasi <strong>Senin-Jumat 07.00-17.00 WIB</strong>.
                   </p>
                   <button
                     type="button"
@@ -1100,7 +1100,7 @@ export default function HomePage() {
                   aria-hidden="true"
                 />
                 <div className="quick-guide-text">
-                      <h4>3 langkah memakai Linusku</h4>
+                      <h4>Panduan singkat Linus</h4>
                   <p>
                         1. Pilih halte. 2. Cek perkiraan kedatangan. 3. Aktifkan pengingat atau bagikan posisi langsung dari halte.
                   </p>
@@ -1124,7 +1124,7 @@ export default function HomePage() {
                 <h2 id="arrival-title">{selectedStop.name}</h2>
                 <p className="stop-area">{selectedStop.area}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  ⭐ Simpan favorit · 🔔 Pengingat bus
+                  Simpan favorit. Pengingat bus
                 </p>
               </div>
               <div className="arrival-head-actions">
@@ -1244,7 +1244,7 @@ export default function HomePage() {
             )}
             {!operatingStatus.isOpen && (
               <p className="service-status-note" role="status">
-                ⚠️ Bus tidak beroperasi sekarang. Posisi di bawah hanyalah peragaan simulasi rute.
+                Bus tidak beroperasi sekarang. Posisi di bawah hanyalah peragaan simulasi rute.
               </p>
             )}
 
@@ -1267,7 +1267,7 @@ export default function HomePage() {
                     ? 'Bus Linus beroperasi Senin-Jumat, 07.00-17.00 WIB. Buka lagi saat jam operasional.'
                     : feedMode === 'offline'
                       ? 'Periksa koneksi internetmu. Pengambilan data posisi sedang gagal.'
-                      : 'Bus Linus beroperasi resmi Senin–Jumat pukul 07.00–17.00 WIB.'}
+                      : 'Bus Linus beroperasi resmi Senin-Jumat pukul 07.00-17.00 WIB.'}
                 </p>
               </div>
             ) : (
@@ -1357,11 +1357,11 @@ export default function HomePage() {
                       <div className="mt-0.5 text-xs">
                         {isStationary ? (
                           <span className="font-medium text-amber-800">
-                            🛑 Sedang berhenti / naik-turun
+                            Sedang berhenti / naik-turun
                           </span>
                         ) : (
                           <span className="font-medium text-slate-700">
-                            ⚡ Sedang melaju (~{Math.round(bus.speedKmh)} km/jam)
+                            Sedang melaju (~{Math.round(bus.speedKmh)} km/jam)
                           </span>
                         )}
                       </div>
@@ -1381,7 +1381,7 @@ export default function HomePage() {
                           }`}
                           title={`Tingkat keyakinan estimasi: ${Math.round(details.confidence * 100)}%`}
                         >
-                          {isHighConfidence ? '🟢 Posisi Baru' : isMediumConfidence ? '🟡 Diperkirakan' : '⚪ Posisi Lama'}
+                          {isHighConfidence ? 'Posisi Baru' : isMediumConfidence ? 'Diperkirakan' : 'Posisi Lama'}
                         </span>
                         <small className="arrival-source">
                           {isSimulation
@@ -1395,7 +1395,7 @@ export default function HomePage() {
                       </div>
 
                       {isStale && (
-                        <small className="mt-1 block font-semibold text-amber-700">⚠️ Sinyal GPS sempat terhenti</small>
+                        <small className="mt-1 block font-semibold text-amber-700">Sinyal GPS sempat terhenti</small>
                       )}
                     </div>
                     <div className="eta">
@@ -1441,13 +1441,13 @@ export default function HomePage() {
               </p>
             )}
 
-            <div className="mt-3 border border-slate-200 bg-slate-50 p-2.5">
-              <div className="flex items-center justify-between gap-1 text-xs font-bold text-slate-800">
-                <span>Bus Linus terlihat di halte ini?</span>
-                <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-1.5 py-0.2 rounded">Sukarela</span>
-              </div>
+            <details className="crowd-report-details">
+              <summary>
+                Laporkan bus atau kepadatan
+              </summary>
+              <div className="crowd-report-content">
               <p className="mt-0.5 text-[11px] text-slate-500">
-                Pilih kepadatan bus saat terlihat. Laporan tidak menggantikan posisi GPS supir.
+                Pilih satu mode, lalu kirim kepadatan bus. Laporan tidak menggantikan posisi GPS supir.
               </p>
 
               <div className="density-chips" role="group" aria-label="Pilih tingkat kepadatan bus">
@@ -1456,27 +1456,27 @@ export default function HomePage() {
                   className={`density-chip-btn ${crowdOccupancy === 'low' ? 'is-active' : ''}`}
                   onClick={() => setCrowdOccupancy('low')}
                   aria-pressed={crowdOccupancy === 'low'}
-                  aria-label="Kepadatan: Lega — penumpang sedikit, banyak kursi kosong"
+                  aria-label="Kepadatan Lega: penumpang sedikit, banyak kursi kosong"
                 >
-                  <span aria-hidden="true">🟢</span> Lega
+                  Lega
                 </button>
                 <button
                   type="button"
                   className={`density-chip-btn ${crowdOccupancy === 'medium' ? 'is-active' : ''}`}
                   onClick={() => setCrowdOccupancy('medium')}
                   aria-pressed={crowdOccupancy === 'medium'}
-                  aria-label="Kepadatan: Sedang — penumpang lumayan, beberapa kursi kosong"
+                  aria-label="Kepadatan Sedang: penumpang lumayan, beberapa kursi kosong"
                 >
-                  <span aria-hidden="true">🟡</span> Sedang
+                  Sedang
                 </button>
                 <button
                   type="button"
                   className={`density-chip-btn ${crowdOccupancy === 'full' ? 'is-active' : ''}`}
                   onClick={() => setCrowdOccupancy('full')}
                   aria-pressed={crowdOccupancy === 'full'}
-                  aria-label="Kepadatan: Penuh — penumpang penuh, berdiri"
+                  aria-label="Kepadatan Penuh: penumpang penuh dan ada yang berdiri"
                 >
-                  <span aria-hidden="true">🔴</span> Penuh
+                  Penuh
                 </button>
               </div>
 
@@ -1539,7 +1539,8 @@ export default function HomePage() {
               <p className="mt-1 text-[10px] text-slate-500">
                 Saya di dalam bus: kamu sedang naik Linus. Nama armada dapat dilihat pada daftar LINUS-01/02/03 atau ditanyakan kepada supir. Pada mode ini, lokasi perangkat dikirim ke server bersama laporan kepadatan.
               </p>
-            </div>
+              </div>
+            </details>
 
             {crowdStatus && (
               <p className="utility-status font-medium text-emerald-800 mt-2" role="status">
@@ -1566,19 +1567,19 @@ export default function HomePage() {
             {showInfoCard && (
               <div className="passenger-faq-grid">
                 <div className="passenger-faq-item">
-                  <strong>🎟️ 100% Gratis</strong>
+                  <strong>100% Gratis</strong>
                   <p>Fasilitas resmi kampus USU untuk mahasiswa, dosen, &amp; staf tanpa biaya.</p>
                 </div>
                 <div className="passenger-faq-item">
-                  <strong>💳 Tanpa Tap Kartu</strong>
+                  <strong>Tanpa Tap Kartu</strong>
                   <p>Tidak perlu tap KTM atau kartu khusus. Cukup antre dan langsung naik.</p>
                 </div>
                 <div className="passenger-faq-item">
-                  <strong>🚏 Wajib di Halte Resmi</strong>
+                  <strong>Wajib di Halte Resmi</strong>
                   <p>Naik &amp; turun hanya di halte bertanda Linus demi keselamatan lalu lintas.</p>
                 </div>
                 <div className="passenger-faq-item">
-                  <strong>🔄 Rute Loop 1 Arah</strong>
+                  <strong>Rute Loop 1 Arah</strong>
                   <p>Linus berputar keliling kampus searah jarum jam. Cek alur rute sebelum naik.</p>
                 </div>
               </div>
@@ -1656,7 +1657,7 @@ export default function HomePage() {
                           <span className="stop-area">{stop.area}</span>
                           {distMeters !== null && (
                             <span className="rounded bg-blue-50 px-1 py-0.2 text-[10px] font-semibold text-blue-700">
-                              📍 {distMeters < 1000 ? `${distMeters} m` : `${(distMeters / 1000).toFixed(1)} km`}
+                              {distMeters < 1000 ? `${distMeters} m` : `${(distMeters / 1000).toFixed(1)} km`}
                             </span>
                           )}
                         </span>
