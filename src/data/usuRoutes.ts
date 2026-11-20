@@ -985,7 +985,10 @@ export function findNearestStop(
   }).sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
 }
 
-export function isLinusOperatingHours(now = new Date()): boolean {
+export function getLinusOperatingStatus(
+  now = new Date(),
+  _settings: LinusOperatingSettings = DEFAULT_OPERATING_SETTINGS
+) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Jakarta',
     weekday: 'short',
@@ -1008,20 +1011,15 @@ export function isLinusOperatingHours(now = new Date()): boolean {
     Sat: 6,
     Sun: 7,
   };
+  const openingMinutes = 7 * 60;
+  const closingMinutes = 17 * 60;
   const isOpen =
     [1, 2, 3, 4, 5].includes(weekdayNumber[weekday]) &&
-    totalMinutes >= 7 * 60 &&
-    totalMinutes < 17 * 60;
-  return isOpen;
-}
-
-export function getLinusOperatingStatus(
-  now = new Date(),
-  _settings: LinusOperatingSettings = DEFAULT_OPERATING_SETTINGS
-) {
-  const isOpen = isLinusOperatingHours(now);
+    totalMinutes >= openingMinutes &&
+    totalMinutes < closingMinutes;
   const serviceDayLabel = 'Senin sampai Jumat';
   const hoursLabel = '07.00 sampai 17.00 WIB';
+
   return {
     isOpen,
     label: isOpen

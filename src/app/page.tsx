@@ -529,10 +529,7 @@ export default function HomePage() {
   };
 
   const fetchPositions = useCallback(async (showSpinner = false) => {
-    const isOperatingNow = getLinusOperatingStatus(
-      new Date(),
-      DEFAULT_OPERATING_SETTINGS
-    ).isOpen;
+    const isOperatingNow = getLinusOperatingStatus(new Date(), DEFAULT_OPERATING_SETTINGS).isOpen;
     if (showSpinner) setIsRefreshing(true);
     try {
       const res = await fetch('/api/positions', {
@@ -1021,25 +1018,22 @@ export default function HomePage() {
         </a>
       </div>
 
-      <button
-        type="button"
-        className="guide-prominent-link"
-        onClick={() => {
-          setShowInfoCard(true);
-          document.getElementById('panduan-naik-linus')?.scrollIntoView({ block: 'start' });
-        }}
+      <a
+        href="#panduan-naik-linus"
+        className="passenger-faq-title"
+        aria-label="Buka Panduan dan Aturan Naik Linus"
+        style={{ display: 'flex', margin: '8px 16px 0', justifyContent: 'center' }}
       >
-        <HelpCircle size={16} aria-hidden="true" />
-        <span>Panduan &amp; Aturan Naik Linus</span>
-      </button>
+        Panduan &amp; Aturan Naik Linus
+      </a>
 
       <main className="app-main">
         <section className="map-column" id="peta" aria-label="Peta rute Linus">
           <div className="map-frame">
             {!operatingStatus.isOpen && (
-              <div className="map-demo-badge" role="status" aria-label="Peta menampilkan demo atau simulasi bus">
-                DEMO / SIMULASI
-              </div>
+              <span className="map-status-chip is-simulation" role="status" style={{ position: 'absolute', top: 52, left: 12, zIndex: 500 }}>
+                <i aria-hidden="true" /> DEMO / SIMULASI
+              </span>
             )}
             <LinusMap
               buses={buses}
@@ -1110,12 +1104,6 @@ export default function HomePage() {
                   <p>
                         1. Pilih halte. 2. Cek perkiraan kedatangan. 3. Aktifkan pengingat atau bagikan posisi langsung dari halte.
                   </p>
-                  <button type="button" className="quick-guide-link" onClick={() => {
-                    setShowInfoCard(true);
-                    document.getElementById('panduan-naik-linus')?.scrollIntoView({ block: 'start' });
-                  }}>
-                    Panduan &amp; Aturan Naik Linus
-                  </button>
                 </div>
               </div>
               <button
@@ -1201,36 +1189,21 @@ export default function HomePage() {
             {/* Confidence Legend */}
             <div className="confidence-legend" role="group" aria-label="Tingkat keyakinan estimasi ETA">
               <span className="confidence-legend-label">Keyakinan:</span>
-              <span
-                className="confidence-legend-item"
-                tabIndex={0}
-                aria-label="Baru: Seberapa baru data posisi bus ini. GPS baru, kurang dari 20 detik."
-                title="Seberapa baru data posisi bus ini. GPS baru, kurang dari 20 detik."
-              >
+              <span className="confidence-legend-item" tabIndex={0} aria-label="Baru: Seberapa baru data posisi bus ini. GPS baru kurang dari 20 detik." title="Seberapa baru data posisi bus ini. GPS baru kurang dari 20 detik.">
                 <span className="confidence-dot" style={{ background: 'var(--color-success)' }} aria-hidden="true" />
                 <span>Baru</span>
               </span>
-              <span className="confidence-legend-separator" aria-hidden="true">·</span>
-              <span
-                className="confidence-legend-item"
-                tabIndex={0}
-                aria-label="Diperkirakan: Seberapa baru data posisi bus ini. GPS agak lama, 20 sampai 45 detik."
-                title="Seberapa baru data posisi bus ini. GPS agak lama, 20 sampai 45 detik."
-              >
+              <span aria-hidden="true"> · </span>
+              <span className="confidence-legend-item" tabIndex={0} aria-label="Diperkirakan: Seberapa baru data posisi bus ini. GPS 20 sampai 45 detik." title="Seberapa baru data posisi bus ini. GPS 20 sampai 45 detik.">
                 <span className="confidence-dot" style={{ background: 'var(--color-accent-2)' }} aria-hidden="true" />
                 <span>Diperkirakan</span>
               </span>
-              <span className="confidence-legend-separator" aria-hidden="true">·</span>
-              <span
-                className="confidence-legend-item"
-                tabIndex={0}
-                aria-label="Lama: Seberapa baru data posisi bus ini. GPS lama, lebih dari 45 detik."
-                title="Seberapa baru data posisi bus ini. GPS lama, lebih dari 45 detik."
-              >
+              <span aria-hidden="true"> · </span>
+              <span className="confidence-legend-item" tabIndex={0} aria-label="Lama: Seberapa baru data posisi bus ini. GPS lebih dari 45 detik." title="Seberapa baru data posisi bus ini. GPS lebih dari 45 detik.">
                 <span className="confidence-dot" style={{ background: 'var(--color-muted)' }} aria-hidden="true" />
                 <span>Lama</span>
               </span>
-              <p className="confidence-help">Seberapa baru data posisi bus ini.</p>
+              <span className="text-[10px] text-slate-500">Seberapa baru data posisi bus ini.</span>
             </div>
 
             {pushNotificationsEnabled && notificationsEnabled && (
@@ -1310,9 +1283,7 @@ export default function HomePage() {
                 const isStationary = bus.speedKmh <= 2;
                 const isSimulation = !operatingStatus.isOpen || feedMode === 'simulation';
                 const freshnessText =
-                  !operatingStatus.isOpen
-                    ? 'Posisi contoh simulasi'
-                    : diffSec < 20
+                  diffSec < 20
                     ? 'GPS baru (<20 dtk)'
                     : `Update ${diffSec < 60 ? `${diffSec} dtk` : `${Math.floor(diffSec / 60)} mnt`} lalu`;
 
@@ -1472,11 +1443,11 @@ export default function HomePage() {
 
             <div className="mt-3 border border-slate-200 bg-slate-50 p-2.5">
               <div className="flex items-center justify-between gap-1 text-xs font-bold text-slate-800">
-                <span>Laporkan bus yang terlihat</span>
+                <span>Bus Linus terlihat di halte ini?</span>
                 <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-1.5 py-0.2 rounded">Sukarela</span>
               </div>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                Dua mode: pilih laporan di bawah sesuai posisimu.
+                Pilih kepadatan bus saat terlihat. Laporan tidak menggantikan posisi GPS supir.
               </p>
 
               <div className="density-chips" role="group" aria-label="Pilih tingkat kepadatan bus">
@@ -1523,7 +1494,7 @@ export default function HomePage() {
               >
                 <MapPin size={15} />
                 {operatingStatus.isOpen
-                  ? `Bus terlihat di halte ini`
+                  ? 'Bus terlihat di halte ini'
                   : 'Aktif saat jam operasional bus'}
               </button>
               <p className="mt-1 text-[10px] text-slate-500">
@@ -1562,14 +1533,11 @@ export default function HomePage() {
                   Saya di dalam bus
                 </button>
               </div>
-              <p className="mt-1 text-[10px] text-slate-500">
-                Saya di dalam bus: kamu sedang naik Linus dan bisa memastikan armada serta kepadatannya. Nama bus LINUS-01/02/03 dapat dilihat di daftar ini; jika tidak tersedia di badan bus, tanyakan kepada supir.
-              </p>
-              <p className="mt-1 text-[10px] text-slate-500">
-                Pada mode ini, lokasi perangkat dikirim ke server bersama nama bus, halte, dan kepadatan untuk laporan komunitas.
-              </p>
               <p className="mt-1.5 text-[10px] text-slate-500">
                 Laporan mahasiswa berlaku 3 menit dan hanya membantu perkiraan kepadatan. Ini bukan panggilan bus.
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">
+                Saya di dalam bus: kamu sedang naik Linus. Nama armada dapat dilihat pada daftar LINUS-01/02/03 atau ditanyakan kepada supir. Pada mode ini, lokasi perangkat dikirim ke server bersama laporan kepadatan.
               </p>
             </div>
 
@@ -1587,15 +1555,6 @@ export default function HomePage() {
               onClick={() => setShowInfoCard(!showInfoCard)}
               role="button"
               tabIndex={0}
-              aria-expanded={showInfoCard}
-              aria-controls="panduan-naik-linus-content"
-              aria-label={showInfoCard ? 'Tutup panduan dan aturan naik Linus' : 'Buka panduan dan aturan naik Linus'}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  setShowInfoCard(!showInfoCard);
-                }
-              }}
             >
               <span className="flex items-center gap-1.5 font-bold">
                 <Info size={15} className="text-emerald-700" />
@@ -1605,7 +1564,7 @@ export default function HomePage() {
             </div>
 
             {showInfoCard && (
-              <div className="passenger-faq-grid" id="panduan-naik-linus-content">
+              <div className="passenger-faq-grid">
                 <div className="passenger-faq-item">
                   <strong>🎟️ 100% Gratis</strong>
                   <p>Fasilitas resmi kampus USU untuk mahasiswa, dosen, &amp; staf tanpa biaya.</p>
@@ -1704,8 +1663,8 @@ export default function HomePage() {
                       </span>
                       {nearest !== null && (
                         <span className="stop-nearest">
-                          {                          !operatingStatus.isOpen
-                            ? `${Math.max(0, nearest)} menit simulasi`
+                          {!operatingStatus.isOpen
+                            ? `${Math.max(0, nearest)} menit contoh`
                             : nearest <= 1
                               ? 'Sudah dekat'
                               : `${nearest} menit`}
@@ -1731,7 +1690,7 @@ export default function HomePage() {
           <div className="campus-ecosystem-card">
             <div className="ecosystem-heading">
               <span className="font-bold text-xs uppercase tracking-wider text-slate-500">
-                Marketplace Kampus
+                Ekosistem Kampus USU
               </span>
             </div>
             <div className="ecosystem-links">
@@ -1749,6 +1708,7 @@ export default function HomePage() {
                 </div>
                 <ExternalLink size={13} className="text-slate-400 shrink-0" />
               </a>
+
               {process.env.NEXT_PUBLIC_CONTACT_URL?.trim() && (
                 <a
                   className="ecosystem-link-item active:translate-y-px"
